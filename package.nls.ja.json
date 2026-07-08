@@ -1,0 +1,17 @@
+{
+  "viewContainer.airgapChat": "Airgap Chat",
+  "view.channels": "チャンネル",
+  "command.openChannel": "チャンネルを開く",
+  "command.createChannel": "チャンネルを作成",
+  "command.renameChannel": "チャンネル名を変更",
+  "command.refresh": "更新",
+  "command.setup": "初期設定",
+  "config.rootPath": "ストレージ兼トランスポートとして使う共有フォルダ(chat-root)のパス。必須。",
+  "config.userId": "ユーザーID。空欄の場合は OS のユーザー名を使用します。",
+  "config.displayName": "他のユーザーに表示される表示名。",
+  "config.poll.reconcileSec": "照合ポーリングの周期(秒)。",
+  "config.poll.fallbackSec": "フォールバックポーリングの基本周期(秒)。Phase 4 で使用。",
+  "config.watch.enabled": "fs.watch 監視層の有効化。Phase 4 で使用。",
+  "config.attachmentMaxBytes": "添付ファイルの上限サイズ(バイト)。",
+  "config.imageInlinePreview": "画像添付のインラインプレビュー表示。"
+}

@@ -1,0 +1,161 @@
+{
+  "name": "airgap-chat",
+  "displayName": "Airgap Chat",
+  "description": "エアギャップ環境向けサーバレス・チャット(共有ネットワークフォルダのみで動作)",
+  "version": "0.0.1",
+  "publisher": "airgap",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./dist/extension.js",
+  "l10n": "./l10n",
+  "activationEvents": [
+    "onView:airgapChatChannels"
+  ],
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/webview/tsconfig.json",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "airgapChat",
+          "title": "%viewContainer.airgapChat%",
+          "icon": "media/chat.svg"
+        }
+      ]
+    },
+    "views": {
+      "airgapChat": [
+        {
+          "id": "airgapChatChannels",
+          "name": "%view.channels%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "airgapChat.openChannel",
+        "title": "%command.openChannel%",
+        "category": "Airgap Chat"
+      },
+      {
+        "command": "airgapChat.createChannel",
+        "title": "%command.createChannel%",
+        "category": "Airgap Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "airgapChat.renameChannel",
+        "title": "%command.renameChannel%",
+        "category": "Airgap Chat"
+      },
+      {
+        "command": "airgapChat.refresh",
+        "title": "%command.refresh%",
+        "category": "Airgap Chat",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "airgapChat.setup",
+        "title": "%command.setup%",
+        "category": "Airgap Chat"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "airgapChat.createChannel",
+          "when": "view == airgapChatChannels",
+          "group": "navigation@1"
+        },
+        {
+          "command": "airgapChat.refresh",
+          "when": "view == airgapChatChannels",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "airgapChat.renameChannel",
+          "when": "view == airgapChatChannels && viewItem == channel",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "airgapChat.openChannel",
+          "when": "false"
+        },
+        {
+          "command": "airgapChat.renameChannel",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Airgap Chat",
+      "properties": {
+        "airgapChat.rootPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%config.rootPath%"
+        },
+        "airgapChat.userId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%config.userId%"
+        },
+        "airgapChat.displayName": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%config.displayName%"
+        },
+        "airgapChat.poll.reconcileSec": {
+          "type": "number",
+          "default": 90,
+          "markdownDescription": "%config.poll.reconcileSec%"
+        },
+        "airgapChat.poll.fallbackSec": {
+          "type": "number",
+          "default": 4,
+          "markdownDescription": "%config.poll.fallbackSec%"
+        },
+        "airgapChat.watch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%config.watch.enabled%"
+        },
+        "airgapChat.attachmentMaxBytes": {
+          "type": "number",
+          "default": 10485760,
+          "markdownDescription": "%config.attachmentMaxBytes%"
+        },
+        "airgapChat.imageInlinePreview": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%config.imageInlinePreview%"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.125.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.11",
+    "markdown-it": "^14.3.0"
+  }
+}

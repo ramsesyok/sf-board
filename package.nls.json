@@ -1,0 +1,17 @@
+{
+  "viewContainer.airgapChat": "Airgap Chat",
+  "view.channels": "Channels",
+  "command.openChannel": "Open Channel",
+  "command.createChannel": "Create Channel",
+  "command.renameChannel": "Rename Channel",
+  "command.refresh": "Refresh",
+  "command.setup": "Setup",
+  "config.rootPath": "Path to the shared folder (chat-root) used as storage and transport. Required.",
+  "config.userId": "Your user ID. Uses the OS user name when empty.",
+  "config.displayName": "Your display name shown to others.",
+  "config.poll.reconcileSec": "Reconcile polling interval in seconds.",
+  "config.poll.fallbackSec": "Fallback polling base interval in seconds (used in Phase 4).",
+  "config.watch.enabled": "Enable the fs.watch layer (used in Phase 4).",
+  "config.attachmentMaxBytes": "Maximum attachment size in bytes.",
+  "config.imageInlinePreview": "Show inline previews for image attachments."
+}
