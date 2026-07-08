@@ -59,6 +59,35 @@ describe("ChatModel: チャンネル作成・投稿", () => {
   });
 });
 
+describe("ChatModel: リアクション", () => {
+  it("toggleReaction で追加→削除がトグルする", async () => {
+    const id = await model.createChannel("general");
+    await model.sendMessage(id, "m");
+    const msgId = model.getChannelView(id)!.threads[0].parent.id;
+
+    await model.toggleReaction(id, msgId, "👍");
+    let reactions = model.getChannelView(id)!.threads[0].parent.reactions;
+    expect(reactions).toEqual([{ emoji: "👍", users: ["alice"] }]);
+
+    await model.toggleReaction(id, msgId, "👍");
+    reactions = model.getChannelView(id)!.threads[0].parent.reactions;
+    expect(reactions).toEqual([]);
+  });
+});
+
+describe("ChatModel: 添付", () => {
+  it("writeAttachment → sendMessage(attachments) で添付が紐づく", async () => {
+    const id = await model.createChannel("general");
+    const ulid = await model.writeAttachment(id, Buffer.from("hello png"), "pic.png", "image/png");
+    await model.sendMessage(id, "見て", undefined, [ulid]);
+
+    const parent = model.getChannelView(id)!.threads[0].parent;
+    expect(parent.attachments).toEqual([ulid]);
+    const atts = model.getChannelAttachments(id);
+    expect(atts[ulid].meta.name).toBe("pic.png");
+  });
+});
+
 describe("ChatModel: 照合ポーリングによる他ユーザー投稿の取り込み", () => {
   it("reconcileAll で他ユーザーの追記を反映し通知する", async () => {
     const id = await model.createChannel("general");

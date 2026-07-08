@@ -95,11 +95,13 @@ async function reinitialize(context: vscode.ExtensionContext, lang: ReturnType<t
   }
 
   const tree = new ChannelTreeProvider(model);
-  const panels = new PanelManager(
-    context.extensionUri,
-    model,
-    () => vscode.workspace.getConfiguration(CONFIG_SECTION).get<number>("attachmentMaxBytes") ?? 10485760,
-  );
+  const panels = new PanelManager(context.extensionUri, model, rootPath, () => {
+    const c = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    return {
+      attachmentMaxBytes: c.get<number>("attachmentMaxBytes") ?? 10485760,
+      imageInlinePreview: c.get<boolean>("imageInlinePreview") ?? true,
+    };
+  });
   const poller = new ReconcilePoller(rootPath, {
     intervalMs: reconcileSec * 1000,
     onChange: () => void model.reconcileAll(),

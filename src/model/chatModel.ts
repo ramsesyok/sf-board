@@ -9,10 +9,11 @@
 
 import { EventEmitter } from "node:events";
 import * as store from "../core/store";
-import { reduceChannel, buildThreads, type RenderedThread } from "../core/reducer";
+import { reduceChannel, buildThreads, type RenderedThread, type MessageState } from "../core/reducer";
 import { serializeEvent, type ChatEvent } from "../core/events";
 import { monotonicUlidFactory, type Ulid } from "../core/ulid";
 import type { ChannelMeta, UserProfile } from "../shared/types";
+import type { StoredAttachment } from "../core/store";
 
 export interface ChannelSummary {
   id: Ulid;
@@ -28,6 +29,7 @@ export interface ChannelView {
 interface LoadedChannel {
   meta: ChannelMeta;
   view: ChannelView;
+  attachments: Record<Ulid, StoredAttachment>;
   /** 変化検出用シグネチャ(イベント数 + 最終イベント ID)。 */
   signature: string;
 }
@@ -104,7 +106,8 @@ export class ChatModel {
     if (!meta) return undefined;
     const events = await store.readChannelEvents(this.rootPath, channelId);
     for (const ev of events) this.ulidGen.observe(ev.id);
-    const loaded = this.buildLoaded(meta, events);
+    const attachments = await store.listAttachments(this.rootPath, channelId);
+    const loaded = this.buildLoaded(meta, events, attachments);
     this.loaded.set(channelId, loaded);
     this.knownChannelIds.add(channelId);
     return loaded;
@@ -115,7 +118,16 @@ export class ChatModel {
     return this.loaded.get(channelId)?.view;
   }
 
-  private buildLoaded(meta: ChannelMeta, events: ChatEvent[]): LoadedChannel {
+  /** キャッシュ済みの添付情報(ulid → 情報)を返す。 */
+  getChannelAttachments(channelId: Ulid): Record<Ulid, StoredAttachment> {
+    return this.loaded.get(channelId)?.attachments ?? {};
+  }
+
+  private buildLoaded(
+    meta: ChannelMeta,
+    events: ChatEvent[],
+    attachments: Record<Ulid, StoredAttachment>,
+  ): LoadedChannel {
     const state = reduceChannel(events);
     const view: ChannelView = {
       channelId: meta.id,
@@ -123,13 +135,25 @@ export class ChatModel {
       threads: buildThreads(state.messages),
     };
     const last = events.length > 0 ? events.reduce((m, e) => (e.id > m ? e.id : m), events[0].id) : "";
-    return { meta, view, signature: `${events.length}|${last}` };
+    return { meta, view, attachments, signature: `${events.length}|${last}` };
+  }
+
+  /** ビュー内(親・返信)からメッセージ状態を ID で検索する。 */
+  private findMessage(channelId: Ulid, messageId: Ulid): MessageState | undefined {
+    const view = this.loaded.get(channelId)?.view;
+    if (!view) return undefined;
+    for (const thread of view.threads) {
+      if (thread.parent.id === messageId) return thread.parent;
+      const reply = thread.replies.find((r) => r.id === messageId);
+      if (reply) return reply;
+    }
+    return undefined;
   }
 
   // ---- 書き込み操作(Webview からの委譲) ----
 
   /** メッセージを投稿する。書き込み後に再読込して onChannelUpdated を発火する。 */
-  async sendMessage(channelId: Ulid, body: string, threadId?: Ulid): Promise<void> {
+  async sendMessage(channelId: Ulid, body: string, threadId?: Ulid, attachments?: Ulid[]): Promise<void> {
     const event: ChatEvent = {
       id: this.ulidGen.next(),
       type: "message_created",
@@ -137,8 +161,38 @@ export class ChatModel {
       author: this.selfUserId,
       body,
       ...(threadId ? { threadId } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     await this.writeEvent(channelId, event);
+  }
+
+  /**
+   * リアクションをトグルする。現在 self が当該絵文字を付けていれば removed、
+   * そうでなければ added を書き込む。DESIGN.md §3。
+   */
+  async toggleReaction(channelId: Ulid, targetId: Ulid, emoji: string): Promise<void> {
+    const message = this.findMessage(channelId, targetId);
+    const already =
+      message?.reactions.some((r) => r.emoji === emoji && r.users.includes(this.selfUserId)) ?? false;
+    const event: ChatEvent = {
+      id: this.ulidGen.next(),
+      type: already ? "reaction_removed" : "reaction_added",
+      ts: new Date().toISOString(),
+      author: this.selfUserId,
+      targetId,
+      emoji,
+    };
+    await this.writeEvent(channelId, event);
+  }
+
+  /**
+   * 添付を共有フォルダへ書き込み、その ulid を返す(DESIGN.md §4.3 手順1〜3)。
+   * message_created への添付付与は呼び出し側が sendMessage の attachments で行う(手順4)。
+   */
+  async writeAttachment(channelId: Ulid, data: Buffer, name: string, mime: string): Promise<Ulid> {
+    const ulid = this.ulidGen.next();
+    await store.writeAttachment(this.rootPath, channelId, ulid, data, name, mime);
+    return ulid;
   }
 
   /** チャンネルをリネームする(全ユーザー可)。DESIGN_EXTENSION.md §2。 */
@@ -213,7 +267,8 @@ export class ChatModel {
     if (!meta) return;
     const events = await store.readChannelEvents(this.rootPath, channelId);
     for (const ev of events) this.ulidGen.observe(ev.id);
-    const next = this.buildLoaded(meta, events);
+    const attachments = await store.listAttachments(this.rootPath, channelId);
+    const next = this.buildLoaded(meta, events, attachments);
     const prev = this.loaded.get(channelId);
     this.loaded.set(channelId, next);
     if (force || !prev || prev.signature !== next.signature) {

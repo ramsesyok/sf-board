@@ -75,16 +75,26 @@
 ## 5. Host ⇔ Webview メッセージプロトコル
 
 ```typescript
+// 既存メッセージの添付を描画するための情報(Phase 3 追補)。
+// uri は Host が asWebviewUri で解決した Webview 用 URI。
+// isImage は §6.5 の判定(画像 MIME かつ非SVG かつ imageInlinePreview 有効)。
+interface AttachmentInfo {
+  ulid: string; name: string; mime: string; size: number; uri: string; isImage: boolean;
+}
+
 // Host → Webview
 type HostMessage =
   | { kind: "init"; channelId: string; channelName: string;
       messages: RenderedThread[];        // リデュース済み全履歴(スレッド構造化済み)
       users: Record<string, UserProfile>;
+      attachments: Record<string, AttachmentInfo>;  // ulid → 添付情報(Phase 3 追補)
       selfUserId: string;
       l10n: Record<string, string>;      // Webview用文言辞書(§9)
       config: { attachmentMaxBytes: number } }
   | { kind: "channelUpdated";            // 差分ではなく最新状態を再送(冪等・単純)
-      messages: RenderedThread[]; channelName: string }
+      messages: RenderedThread[]; channelName: string;
+      users: Record<string, UserProfile>;
+      attachments: Record<string, AttachmentInfo> }        // Phase 3 追補
   | { kind: "sendResult"; requestId: string; ok: boolean; error?: string }
   | { kind: "attachmentPicked"; requestId: string;
       files: { ulid: string; name: string; size: number }[] };
@@ -97,11 +107,14 @@ type WebviewMessage =
   | { kind: "toggleReaction"; targetId: string; emoji: string }
   | { kind: "pickAttachment"; requestId: string }            // Host側でファイルダイアログ
   | { kind: "openAttachment"; ulid: string }                 // 既定アプリ/保存ダイアログ
+  | { kind: "openLink"; href: string }                       // §10 リンク委譲(Phase 3 追補)
   | { kind: "renameChannel"; name: string };
 ```
 
 - `channelUpdated` は差分イベントではなく**リデュース済み最新状態の全量**を送る。50人規模+全履歴読み込み方針なら十分軽く、Webview 側の状態管理バグを構造的に排除できる。描画のみ差分更新する(§6.3)。
 - `RenderedThread` は「親メッセージ+返信配列+リアクション集計済み」のビュー用構造体。Markdown→HTML 変換は **Webview 側**で行う(Host は生テキストを渡す)。
+- `attachments` は当該チャンネルのメッセージが参照する添付の描画情報。Host が `attachments/{ch}/{YYYY-MM}/{ulid}/meta.json` を読み、`blob` を `asWebviewUri` で解決して渡す(Phase 3 追補)。
+- `openLink` は本文中リンクのクリックを Host へ委譲する。Host は URL 全文を確認ダイアログで提示し、承認時のみ `vscode.env.openExternal` を呼ぶ(§10)。拡張自身は当該 URL へ通信しない(Phase 3 追補)。
 
 ## 6. Webview UI 詳細
 

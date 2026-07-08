@@ -3,7 +3,7 @@
 
 import * as vscode from "vscode";
 import type { ChatModel } from "../model/chatModel";
-import { ChatPanel, CHANNEL_VIEW_TYPE } from "./chatPanel";
+import { ChatPanel, CHANNEL_VIEW_TYPE, type ChatPanelDeps } from "./chatPanel";
 
 export class PanelManager {
   private readonly panels = new Map<string, ChatPanel>();
@@ -11,7 +11,8 @@ export class PanelManager {
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly model: ChatModel,
-    private readonly getAttachmentMaxBytes: () => number,
+    private readonly rootPath: string,
+    private readonly getDeps: () => ChatPanelDeps,
   ) {}
 
   /** チャンネルをタブで開く。既存パネルがあれば reveal する。 */
@@ -37,7 +38,8 @@ export class PanelManager {
       this.extensionUri,
       this.model,
       channelId,
-      this.getAttachmentMaxBytes(),
+      this.rootPath,
+      this.getDeps(),
     );
     this.panels.set(channelId, chatPanel);
     chatPanel.onDidDispose(() => this.panels.delete(channelId));

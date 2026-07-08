@@ -18,6 +18,10 @@ import {
   eventFilePath,
   initWorkspace,
   makeTempRoot,
+  writeAttachment,
+  listAttachments,
+  verifyAttachment,
+  sha256Hex,
 } from "../core/store";
 import { reduceChannel } from "../core/reducer";
 import type { ChatEvent } from "../core/events";
@@ -121,6 +125,34 @@ describe("store: readChannelEvents", () => {
 
   it("イベントが無いチャンネルは空配列", async () => {
     expect(await readChannelEvents(root, "0000000000000000000000NONE")).toEqual([]);
+  });
+});
+
+describe("store: 添付ファイル(DESIGN.md §4.3)", () => {
+  it("書き込み後 listAttachments で meta と共に取得でき、SHA-256 が一致する", async () => {
+    const data = Buffer.from("attachment payload");
+    const ulid = "0000000000000000000000ATT1";
+    const meta = await writeAttachment(root, CH, ulid, data, "photo.png", "image/png", new Date(2026, 6, 9));
+    expect(meta.size).toBe(data.length);
+    expect(meta.sha256).toBe(sha256Hex(data));
+
+    const list = await listAttachments(root, CH);
+    expect(Object.keys(list)).toEqual([ulid]);
+    expect(list[ulid].meta.name).toBe("photo.png");
+    expect(list[ulid].month).toBe("2026-07");
+    expect(await verifyAttachment(list[ulid].blobPath, meta.sha256)).toBe(true);
+  });
+
+  it("blob が改竄されると verifyAttachment が false", async () => {
+    const ulid = "0000000000000000000000ATT2";
+    const meta = await writeAttachment(root, CH, ulid, Buffer.from("orig"), "a.txt", "text/plain", new Date(2026, 6, 9));
+    const list = await listAttachments(root, CH);
+    await fs.writeFile(list[ulid].blobPath, "tampered");
+    expect(await verifyAttachment(list[ulid].blobPath, meta.sha256)).toBe(false);
+  });
+
+  it("添付が無いチャンネルは空", async () => {
+    expect(await listAttachments(root, "0000000000000000000000NONE")).toEqual({});
   });
 });
 

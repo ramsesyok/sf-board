@@ -25,3 +25,11 @@ export interface Cursor {
   lastChannelId: Ulid;
   updatedAt: string; // ISO 8601
 }
+
+// 添付の meta.json スキーマ。DESIGN.md §4.3(元ファイル名/MIME/サイズ/SHA-256)。
+export interface AttachmentMeta {
+  name: string; // 元ファイル名
+  mime: string;
+  size: number; // バイト数
+  sha256: string; // blob の SHA-256(16進)
+}

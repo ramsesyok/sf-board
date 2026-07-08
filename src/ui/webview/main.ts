@@ -1,12 +1,12 @@
 // Webview 本体。DESIGN_EXTENSION.md §5・§6・§10。
 // - 正状態は Host。ここは投影(ビュー)であり、リデューサは持たない。
 // - Markdown は markdown-it(html:false)+ DOMPurify サニタイズ。外部 URL 画像は描画しない。
-// - Ctrl+Enter(Cmd+Enter)で送信、Enter は改行。
+// - Ctrl+Enter(Cmd+Enter)で送信、Enter は改行。Ctrl+F で検索。
 // - 描画は ULID キーで DOM を突き合わせ、変化した要素のみ再描画する(§6.3)。
 
 import MarkdownIt from "markdown-it";
 import DOMPurify, { type Config } from "dompurify";
-import type { HostMessage, WebviewMessage } from "../../shared/protocol";
+import type { HostMessage, WebviewMessage, AttachmentInfo } from "../../shared/protocol";
 import type { RenderedThread, MessageState } from "../../core/reducer";
 import type { UserProfile } from "../../shared/types";
 
@@ -18,7 +18,6 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
-
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
 // DOMPurify ホワイトリスト(§10 有効記法)。
@@ -33,22 +32,41 @@ const SANITIZE_OPTIONS: Config = {
   ALLOW_DATA_ATTR: false,
 };
 
+// 絵文字ピッカーの定義済みセット(§6.1: 20 個程度)。外部ライブラリは使わない。
+const EMOJI_SET = [
+  "👍", "✅", "🙏", "😄", "🎉", "👀", "❤️", "🔥", "💯", "👏",
+  "🤔", "👌", "🙌", "⭐", "😅", "😢", "😮", "🚀", "😀", "🎈",
+];
+
 // ---- 状態 ----
 let selfUserId = "";
 let users: Record<string, UserProfile> = {};
+let attachments: Record<string, AttachmentInfo> = {};
 let strings: Record<string, string> = {};
 let channelId = "";
+let currentThreads: RenderedThread[] = [];
+const expandedThreads = new Set<string>(); // 展開中の親メッセージ ID
+const replyDrafts = new Map<string, string>(); // 親 ID → 返信ドラフト本文
+let pendingAttachments: { ulid: string; name: string; size: number }[] = [];
 
 function tr(key: string): string {
   return strings[key] ?? key;
+}
+function fmt(key: string, ...args: string[]): string {
+  return tr(key).replace(/\{(\d+)\}/g, (_m, i) => args[Number(i)] ?? "");
 }
 
 // ---- DOM 参照 ----
 const messagesEl = document.getElementById("messages") as HTMLDivElement;
 const inputEl = document.getElementById("input") as HTMLTextAreaElement;
 const sendEl = document.getElementById("send") as HTMLButtonElement;
+const attachEl = document.getElementById("attach") as HTMLButtonElement;
+const pendingEl = document.getElementById("pending") as HTMLDivElement;
+const searchEl = document.getElementById("search") as HTMLDivElement;
+const searchInputEl = document.getElementById("search-input") as HTMLInputElement;
+const searchCountEl = document.getElementById("search-count") as HTMLSpanElement;
 
-// ULID キーの差分描画用キャッシュ。
+// ULID キーの差分描画用キャッシュ(メッセージ要素のみ)。
 const nodeCache = new Map<string, { el: HTMLElement; sig: string }>();
 
 // ---- 受信 ----
@@ -58,20 +76,26 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     case "init":
       selfUserId = msg.selfUserId;
       users = msg.users;
+      attachments = msg.attachments;
       strings = msg.l10n;
       channelId = msg.channelId;
       vscode.setState({ channelId });
       applyStrings();
-      renderThreads(msg.messages);
+      currentThreads = msg.messages;
+      render();
       break;
     case "channelUpdated":
       users = msg.users;
-      renderThreads(msg.messages);
+      attachments = msg.attachments;
+      currentThreads = msg.messages;
+      render();
       break;
     case "sendResult":
       // Phase 4 で楽観的 UI(pending/再送)を実装。現状は再読込で反映される。
       break;
     case "attachmentPicked":
+      for (const f of msg.files) pendingAttachments.push(f);
+      renderPending();
       break;
   }
 });
@@ -79,50 +103,64 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
 function applyStrings(): void {
   inputEl.placeholder = tr("messagePlaceholder");
   sendEl.textContent = tr("send");
+  attachEl.title = tr("attach");
+  searchInputEl.placeholder = tr("searchPlaceholder");
 }
 
-// ---- 描画(§6.3 差分描画) ----
-function renderThreads(threads: RenderedThread[]): void {
+// ---- 描画(§6.3 差分描画: メッセージ要素はキャッシュ再利用) ----
+function render(): void {
   const atBottom = isScrolledToBottom();
 
-  if (threads.length === 0) {
+  if (currentThreads.length === 0) {
     nodeCache.clear();
     messagesEl.replaceChildren(emptyPlaceholder());
     return;
   }
 
-  // スレッドを描画順(親→返信)に平坦化する。
-  const ordered: { msg: MessageState; isReply: boolean }[] = [];
-  for (const thread of threads) {
-    ordered.push({ msg: thread.parent, isReply: false });
-    for (const reply of thread.replies) ordered.push({ msg: reply, isReply: true });
-  }
-
   const seen = new Set<string>();
   const frag = document.createDocumentFragment();
-  for (const { msg, isReply } of ordered) {
-    seen.add(msg.id);
-    const sig = signatureOf(msg, isReply);
-    let entry = nodeCache.get(msg.id);
-    if (!entry || entry.sig !== sig) {
-      const el = createMessageEl(msg, isReply);
-      entry = { el, sig };
-      nodeCache.set(msg.id, entry);
+
+  for (const thread of currentThreads) {
+    frag.appendChild(getMessageEl(thread.parent, false, seen));
+
+    const replyCount = thread.replies.length;
+    const expanded = expandedThreads.has(thread.parent.id);
+    if (replyCount > 0) {
+      frag.appendChild(threadToggle(thread.parent.id, replyCount, expanded));
     }
-    frag.appendChild(entry.el);
+    if (expanded) {
+      for (const reply of thread.replies) {
+        frag.appendChild(getMessageEl(reply, true, seen));
+      }
+      frag.appendChild(replyComposer(thread.parent.id));
+    }
   }
-  // 消えた要素をキャッシュから除去。
+
   for (const id of [...nodeCache.keys()]) {
     if (!seen.has(id)) nodeCache.delete(id);
   }
   messagesEl.replaceChildren(frag);
-
+  applySearchHighlights();
   if (atBottom) scrollToBottom();
 }
 
+function getMessageEl(msg: MessageState, isReply: boolean, seen: Set<string>): HTMLElement {
+  seen.add(msg.id);
+  const sig = signatureOf(msg, isReply);
+  let entry = nodeCache.get(msg.id);
+  if (!entry || entry.sig !== sig) {
+    entry = { el: createMessageEl(msg, isReply), sig };
+    nodeCache.set(msg.id, entry);
+  }
+  return entry.el;
+}
+
 function signatureOf(msg: MessageState, isReply: boolean): string {
-  const reactions = msg.reactions.map((r) => `${r.emoji}:${r.users.length}`).join(",");
-  return JSON.stringify([msg.body, msg.edited, msg.deleted, isReply, reactions]);
+  const reactions = msg.reactions
+    .map((r) => `${r.emoji}:${r.users.length}:${r.users.includes(selfUserId) ? 1 : 0}`)
+    .join(",");
+  const atts = msg.attachments.map((u) => `${u}:${attachments[u]?.uri ?? ""}`).join(",");
+  return JSON.stringify([msg.body, msg.edited, msg.deleted, isReply, reactions, atts]);
 }
 
 function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
@@ -143,20 +181,9 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
 
   const head = document.createElement("div");
   head.className = "msg-head";
-  const author = document.createElement("span");
-  author.className = "msg-author";
-  author.textContent = displayName;
-  const time = document.createElement("span");
-  time.className = "msg-time";
-  time.textContent = formatTime(msg.ts);
-  head.appendChild(author);
-  head.appendChild(time);
-  if (msg.edited && !msg.deleted) {
-    const edited = document.createElement("span");
-    edited.className = "msg-edited";
-    edited.textContent = `(${tr("edited")})`;
-    head.appendChild(edited);
-  }
+  head.appendChild(span("msg-author", displayName));
+  head.appendChild(span("msg-time", formatTime(msg.ts)));
+  if (msg.edited && !msg.deleted) head.appendChild(span("msg-edited", `(${tr("edited")})`));
   main.appendChild(head);
 
   const body = document.createElement("div");
@@ -169,86 +196,374 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
   }
   main.appendChild(body);
 
-  if (!msg.deleted && msg.reactions.length > 0) {
-    const reactions = document.createElement("div");
-    reactions.className = "reactions";
-    for (const r of msg.reactions) {
-      const chip = document.createElement("span");
-      chip.className = "reaction";
-      chip.textContent = `${r.emoji} ${r.users.length}`;
-      reactions.appendChild(chip);
-    }
-    main.appendChild(reactions);
+  if (!msg.deleted && msg.attachments.length > 0) {
+    main.appendChild(renderAttachments(msg.attachments));
+  }
+  if (!msg.deleted) {
+    main.appendChild(renderReactions(msg));
+    main.appendChild(renderActions(msg, isReply));
   }
 
   row.appendChild(main);
   return row;
 }
 
-function renderMarkdown(source: string): string {
-  const rawHtml = md.render(source);
-  return DOMPurify.sanitize(rawHtml, SANITIZE_OPTIONS) as string;
+function renderAttachments(ulids: string[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "attachments";
+  for (const ulid of ulids) {
+    const info = attachments[ulid];
+    if (!info) continue; // まだ読み込まれていない添付はスキップ。
+    if (info.isImage) {
+      const img = document.createElement("img");
+      img.className = "attachment-image";
+      img.src = info.uri;
+      img.alt = info.name;
+      img.title = info.name;
+      img.addEventListener("click", () => postMsg({ kind: "openAttachment", ulid }));
+      wrap.appendChild(img);
+    } else {
+      const card = document.createElement("div");
+      card.className = "attachment-card";
+      card.appendChild(span("name", info.name));
+      card.appendChild(span("size", formatBytes(info.size)));
+      card.addEventListener("click", () => postMsg({ kind: "openAttachment", ulid }));
+      wrap.appendChild(card);
+    }
+  }
+  return wrap;
 }
 
+function renderReactions(msg: MessageState): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "reactions";
+  for (const r of msg.reactions) {
+    const chip = document.createElement("span");
+    chip.className = "reaction";
+    if (r.users.includes(selfUserId)) chip.classList.add("mine");
+    chip.textContent = `${r.emoji} ${r.users.length}`;
+    chip.title = r.users.map((u) => users[u]?.displayName || u).join(", ");
+    chip.addEventListener("click", () => postMsg({ kind: "toggleReaction", targetId: msg.id, emoji: r.emoji }));
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+
+function renderActions(msg: MessageState, isReply: boolean): HTMLElement {
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+
+  const react = document.createElement("button");
+  react.className = "action-btn";
+  react.textContent = "＋😀";
+  react.title = tr("addReaction");
+  react.addEventListener("click", (e) => openEmojiPicker(msg.id, e.currentTarget as HTMLElement));
+  actions.appendChild(react);
+
+  if (!isReply) {
+    const reply = document.createElement("button");
+    reply.className = "action-btn";
+    reply.textContent = tr("reply");
+    reply.addEventListener("click", () => {
+      expandedThreads.add(msg.id);
+      render();
+      focusReplyComposer(msg.id);
+    });
+    actions.appendChild(reply);
+  }
+  return actions;
+}
+
+// ---- スレッド ----
+function threadToggle(parentId: string, count: number, expanded: boolean): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "thread-toggle";
+  el.textContent = expanded ? `▾ ${tr("hideReplies")}` : `▸ ${count} ${tr("replies")}`;
+  el.addEventListener("click", () => {
+    if (expanded) expandedThreads.delete(parentId);
+    else expandedThreads.add(parentId);
+    render();
+  });
+  return el;
+}
+
+function replyComposer(parentId: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "reply-composer";
+  const ta = document.createElement("textarea");
+  ta.rows = 1;
+  ta.placeholder = tr("replyPlaceholder");
+  ta.value = replyDrafts.get(parentId) ?? "";
+  ta.dataset.parent = parentId;
+  ta.addEventListener("input", () => replyDrafts.set(parentId, ta.value));
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const body = ta.value.trim();
+      if (!body) return;
+      postMsg({ kind: "sendMessage", requestId: newRequestId(), body, threadId: parentId });
+      replyDrafts.delete(parentId);
+      ta.value = "";
+    }
+  });
+  const btn = document.createElement("button");
+  btn.className = "action-btn";
+  btn.textContent = tr("send");
+  btn.addEventListener("click", () => {
+    const body = ta.value.trim();
+    if (!body) return;
+    postMsg({ kind: "sendMessage", requestId: newRequestId(), body, threadId: parentId });
+    replyDrafts.delete(parentId);
+    ta.value = "";
+  });
+  wrap.appendChild(ta);
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+function focusReplyComposer(parentId: string): void {
+  const ta = messagesEl.querySelector<HTMLTextAreaElement>(`textarea[data-parent="${parentId}"]`);
+  ta?.focus();
+}
+
+// ---- 絵文字ピッカー ----
+let openPicker: HTMLElement | undefined;
+function openEmojiPicker(targetId: string, anchor: HTMLElement): void {
+  closeEmojiPicker();
+  const picker = document.createElement("div");
+  picker.className = "emoji-picker";
+  for (const emoji of EMOJI_SET) {
+    const b = document.createElement("button");
+    b.textContent = emoji;
+    b.addEventListener("click", () => {
+      postMsg({ kind: "toggleReaction", targetId, emoji });
+      closeEmojiPicker();
+    });
+    picker.appendChild(b);
+  }
+  document.body.appendChild(picker);
+  const rect = anchor.getBoundingClientRect();
+  picker.style.left = `${Math.min(rect.left, window.innerWidth - 230)}px`;
+  picker.style.top = `${Math.max(4, rect.top - picker.offsetHeight - 4)}px`;
+  openPicker = picker;
+}
+function closeEmojiPicker(): void {
+  openPicker?.remove();
+  openPicker = undefined;
+}
+document.addEventListener("click", (e) => {
+  if (openPicker && !openPicker.contains(e.target as Node) && !(e.target as HTMLElement).classList.contains("action-btn")) {
+    closeEmojiPicker();
+  }
+});
+
+// ---- 添付(送信前 pending) ----
+function renderPending(): void {
+  pendingEl.replaceChildren();
+  if (pendingAttachments.length === 0) {
+    pendingEl.classList.add("hidden");
+    return;
+  }
+  pendingEl.classList.remove("hidden");
+  pendingAttachments.forEach((a, idx) => {
+    const chip = document.createElement("span");
+    chip.className = "pending-chip";
+    chip.appendChild(span("", `${a.name} (${formatBytes(a.size)})`));
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.addEventListener("click", () => {
+      pendingAttachments.splice(idx, 1);
+      renderPending();
+    });
+    chip.appendChild(x);
+    pendingEl.appendChild(chip);
+  });
+}
+
+attachEl.addEventListener("click", () => postMsg({ kind: "pickAttachment", requestId: newRequestId() }));
+
+// ---- 検索(§6.2) ----
+interface SearchState { hits: string[]; index: number; }
+let search: SearchState = { hits: [], index: 0 };
+
+function openSearch(): void {
+  searchEl.classList.remove("hidden");
+  searchInputEl.focus();
+  searchInputEl.select();
+}
+function closeSearch(): void {
+  searchEl.classList.add("hidden");
+  searchInputEl.value = "";
+  search = { hits: [], index: 0 };
+  searchCountEl.textContent = "";
+  applySearchHighlights();
+}
+function recomputeSearch(): void {
+  const q = searchInputEl.value.trim().toLowerCase();
+  if (!q) {
+    search = { hits: [], index: 0 };
+    searchCountEl.textContent = "";
+    applySearchHighlights();
+    return;
+  }
+  const hits: string[] = [];
+  for (const thread of currentThreads) {
+    const all = [thread.parent, ...thread.replies];
+    for (const m of all) {
+      if (!m.deleted && m.body.toLowerCase().includes(q)) hits.push(m.id);
+    }
+  }
+  search = { hits, index: 0 };
+  updateSearchCount();
+  jumpToCurrent();
+}
+function updateSearchCount(): void {
+  searchCountEl.textContent = search.hits.length === 0 ? tr("searchNoHits") : fmt("searchCount", String(search.index + 1), String(search.hits.length));
+}
+function jumpToCurrent(): void {
+  if (search.hits.length === 0) {
+    applySearchHighlights();
+    return;
+  }
+  const id = search.hits[search.index];
+  // 折りたたまれたスレッド内の返信なら親を展開する。
+  const parentId = parentOf(id);
+  if (parentId && !expandedThreads.has(parentId)) {
+    expandedThreads.add(parentId);
+    render();
+  } else {
+    applySearchHighlights();
+  }
+  const el = messagesEl.querySelector<HTMLElement>(`.msg[data-id="${id}"]`);
+  el?.scrollIntoView({ block: "center" });
+}
+function parentOf(messageId: string): string | undefined {
+  for (const thread of currentThreads) {
+    if (thread.parent.id === messageId) return undefined; // 親自身
+    if (thread.replies.some((r) => r.id === messageId)) return thread.parent.id;
+  }
+  return undefined;
+}
+function applySearchHighlights(): void {
+  for (const el of messagesEl.querySelectorAll(".msg")) {
+    el.classList.remove("search-hit", "search-current");
+  }
+  search.hits.forEach((id, i) => {
+    const el = messagesEl.querySelector<HTMLElement>(`.msg[data-id="${id}"]`);
+    if (!el) return;
+    el.classList.add(i === search.index ? "search-current" : "search-hit");
+  });
+}
+function nextHit(dir: number): void {
+  if (search.hits.length === 0) return;
+  search.index = (search.index + dir + search.hits.length) % search.hits.length;
+  updateSearchCount();
+  jumpToCurrent();
+}
+
+searchInputEl.addEventListener("input", recomputeSearch);
+searchInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    nextHit(e.shiftKey ? -1 : 1);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeSearch();
+  }
+});
+(document.getElementById("search-next") as HTMLButtonElement).addEventListener("click", () => nextHit(1));
+(document.getElementById("search-prev") as HTMLButtonElement).addEventListener("click", () => nextHit(-1));
+(document.getElementById("search-close") as HTMLButtonElement).addEventListener("click", closeSearch);
+
+// ---- Markdown / ユーティリティ ----
+function renderMarkdown(source: string): string {
+  const rawHtml = md.render(source);
+  return DOMPurify.sanitize(rawHtml, SANITIZE_OPTIONS) as unknown as string;
+}
+function span(cls: string, text: string): HTMLSpanElement {
+  const el = document.createElement("span");
+  if (cls) el.className = cls;
+  el.textContent = text;
+  return el;
+}
 function emptyPlaceholder(): HTMLElement {
   const el = document.createElement("div");
   el.className = "empty";
   el.textContent = tr("emptyChannel");
   return el;
 }
-
 function initialsOf(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed) return "?";
-  return [...trimmed][0].toUpperCase();
+  return trimmed ? [...trimmed][0].toUpperCase() : "?";
 }
-
 function formatTime(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
 }
-
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 function isScrolledToBottom(): boolean {
-  const threshold = 40;
-  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < threshold;
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
 }
 function scrollToBottom(): void {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
-
-// ---- 送信 ----
-function send(): void {
-  const body = inputEl.value.trim();
-  if (!body) return;
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const msg: WebviewMessage = { kind: "sendMessage", requestId, body };
+function postMsg(msg: WebviewMessage): void {
   vscode.postMessage(msg);
-  inputEl.value = "";
-  autoResize();
+}
+function newRequestId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+// ---- メイン送信 ----
+function send(): void {
+  const body = inputEl.value.trim();
+  const atts = pendingAttachments.map((a) => a.ulid);
+  if (!body && atts.length === 0) return;
+  postMsg({
+    kind: "sendMessage",
+    requestId: newRequestId(),
+    body,
+    ...(atts.length > 0 ? { attachments: atts } : {}),
+  });
+  inputEl.value = "";
+  pendingAttachments = [];
+  renderPending();
+  autoResize();
+}
 sendEl.addEventListener("click", send);
-
 inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-  // Ctrl+Enter / Cmd+Enter で送信、Enter は改行(§8 キーバインド)。
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     send();
   }
 });
 inputEl.addEventListener("input", autoResize);
-
 function autoResize(): void {
   inputEl.style.height = "auto";
   inputEl.style.height = `${Math.min(inputEl.scrollHeight, window.innerHeight * 0.4)}px`;
 }
 
-// 本文内リンクのクリックは Phase 2 では抑止する(§10 の openExternal 確認ダイアログは Phase 3)。
+// Ctrl+F / Cmd+F で検索バー(§8: Webview 内でキーを奪う)。
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    openSearch();
+  }
+});
+
+// 本文内リンクのクリックは Host へ委譲(§10: 確認ダイアログ → openExternal)。
 messagesEl.addEventListener("click", (e) => {
-  const target = e.target as HTMLElement;
-  if (target.tagName === "A") e.preventDefault();
+  const target = (e.target as HTMLElement).closest("a");
+  if (target instanceof HTMLAnchorElement) {
+    e.preventDefault();
+    const href = target.getAttribute("href");
+    if (href) postMsg({ kind: "openLink", href });
+  }
 });
 
 // 初期化要求。
-vscode.postMessage({ kind: "ready" } satisfies WebviewMessage);
+postMsg({ kind: "ready" });

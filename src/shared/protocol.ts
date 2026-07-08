@@ -8,6 +8,16 @@ export interface WebviewConfig {
   attachmentMaxBytes: number;
 }
 
+// 既存メッセージの添付を描画するための情報(§5 Phase 3 追補)。
+export interface AttachmentInfo {
+  ulid: string;
+  name: string;
+  mime: string;
+  size: number;
+  uri: string; // Host が asWebviewUri で解決した Webview URI
+  isImage: boolean; // 画像 MIME かつ非SVG かつ imageInlinePreview 有効
+}
+
 // Host → Webview
 export type HostMessage =
   | {
@@ -16,6 +26,7 @@ export type HostMessage =
       channelName: string;
       messages: RenderedThread[]; // リデュース済み全履歴(スレッド構造化済み)
       users: Record<string, UserProfile>;
+      attachments: Record<string, AttachmentInfo>; // ulid → 添付情報
       selfUserId: string;
       l10n: Record<string, string>; // Webview 用文言辞書(§9)
       config: WebviewConfig;
@@ -26,6 +37,7 @@ export type HostMessage =
       messages: RenderedThread[];
       channelName: string;
       users: Record<string, UserProfile>;
+      attachments: Record<string, AttachmentInfo>;
     }
   | { kind: "sendResult"; requestId: string; ok: boolean; error?: string }
   | {
@@ -47,4 +59,5 @@ export type WebviewMessage =
   | { kind: "toggleReaction"; targetId: string; emoji: string }
   | { kind: "pickAttachment"; requestId: string }
   | { kind: "openAttachment"; ulid: string }
+  | { kind: "openLink"; href: string } // §10 リンク委譲
   | { kind: "renameChannel"; name: string };

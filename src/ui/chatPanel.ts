@@ -5,11 +5,20 @@
 // - 正状態は ChatModel。パネルは onChannelUpdated を購読して最新状態を再送するだけ。
 
 import * as vscode from "vscode";
+import * as path from "path";
+import * as fsp from "fs/promises";
 import type { ChatModel } from "../model/chatModel";
-import type { HostMessage, WebviewMessage } from "../shared/protocol";
-import { getStrings, pickLang } from "../shared/strings";
+import type { HostMessage, WebviewMessage, AttachmentInfo } from "../shared/protocol";
+import { getStrings, pickLang, t } from "../shared/strings";
+import { mimeFromFilename, isInlineImageMime } from "../shared/mime";
+import { verifyAttachment } from "../core/store";
 
 export const CHANNEL_VIEW_TYPE = "airgapChat.channel";
+
+export interface ChatPanelDeps {
+  attachmentMaxBytes: number;
+  imageInlinePreview: boolean;
+}
 
 export class ChatPanel {
   private readonly disposables: vscode.Disposable[] = [];
@@ -19,11 +28,17 @@ export class ChatPanel {
     private readonly extensionUri: vscode.Uri,
     private readonly model: ChatModel,
     private readonly channelId: string,
-    private readonly attachmentMaxBytes: number,
+    private readonly rootPath: string,
+    private readonly deps: ChatPanelDeps,
   ) {
     this.panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist"), vscode.Uri.joinPath(this.extensionUri, "media")],
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.extensionUri, "dist"),
+        vscode.Uri.joinPath(this.extensionUri, "media"),
+        // 添付表示のため chat-root/attachments も許可する(DESIGN_EXTENSION.md §4)。
+        vscode.Uri.file(path.join(this.rootPath, "attachments")),
+      ],
     };
     this.panel.webview.html = this.buildHtml();
 
@@ -82,12 +97,100 @@ export class ChatPanel {
       case "renameChannel":
         await this.model.renameChannel(this.channelId, msg.name);
         break;
-      // Phase 3: toggleReaction / pickAttachment / openAttachment を実装する。
       case "toggleReaction":
+        await this.model.toggleReaction(this.channelId, msg.targetId, msg.emoji);
+        break;
       case "pickAttachment":
+        await this.handlePickAttachment(msg.requestId);
+        break;
       case "openAttachment":
+        await this.handleOpenAttachment(msg.ulid);
+        break;
+      case "openLink":
+        await this.handleOpenLink(msg.href);
         break;
     }
+  }
+
+  private async handlePickAttachment(requestId: string): Promise<void> {
+    const lang = pickLang(vscode.env.language);
+    const picked = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFolders: false });
+    const files: { ulid: string; name: string; size: number }[] = [];
+    if (picked) {
+      for (const uri of picked) {
+        const data = await fsp.readFile(uri.fsPath);
+        const name = path.basename(uri.fsPath);
+        if (data.length > this.deps.attachmentMaxBytes) {
+          void vscode.window.showErrorMessage(
+            t(lang, "attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
+          );
+          continue;
+        }
+        const ulid = await this.model.writeAttachment(this.channelId, data, name, mimeFromFilename(name));
+        files.push({ ulid, name, size: data.length });
+      }
+    }
+    // キャンセル時も files:[] で応答して Webview のリクエスト待ちを解消する。
+    this.post({ kind: "attachmentPicked", requestId, files });
+  }
+
+  private async handleOpenAttachment(ulid: string): Promise<void> {
+    const lang = pickLang(vscode.env.language);
+    const stored = this.model.getChannelAttachments(this.channelId)[ulid];
+    if (!stored) {
+      void vscode.window.showErrorMessage(t(lang, "attachNotFound"));
+      return;
+    }
+    const target = await vscode.window.showSaveDialog({
+      title: t(lang, "attachSaveTitle"),
+      defaultUri: vscode.Uri.file(stored.meta.name),
+    });
+    if (!target) return;
+    // 保存時に SHA-256 検証する(DESIGN.md §4.3)。
+    const ok = await verifyAttachment(stored.blobPath, stored.meta.sha256);
+    if (!ok) {
+      void vscode.window.showErrorMessage(t(lang, "attachVerifyFailed", stored.meta.name));
+      return;
+    }
+    await fsp.copyFile(stored.blobPath, target.fsPath);
+    void vscode.window.showInformationMessage(t(lang, "attachSaved", target.fsPath));
+  }
+
+  private async handleOpenLink(href: string): Promise<void> {
+    const lang = pickLang(vscode.env.language);
+    // §10: http(s) のみ、URL 全文を確認ダイアログで提示してから openExternal に委譲。
+    let uri: vscode.Uri;
+    try {
+      uri = vscode.Uri.parse(href, true);
+    } catch {
+      return;
+    }
+    if (uri.scheme !== "http" && uri.scheme !== "https") return;
+    const choice = await vscode.window.showWarningMessage(
+      t(lang, "linkConfirm", href),
+      { modal: true },
+      t(lang, "linkOpen"),
+    );
+    if (choice === t(lang, "linkOpen")) {
+      await vscode.env.openExternal(uri);
+    }
+  }
+
+  private buildAttachmentInfos(): Record<string, AttachmentInfo> {
+    const stored = this.model.getChannelAttachments(this.channelId);
+    const out: Record<string, AttachmentInfo> = {};
+    for (const [ulid, a] of Object.entries(stored)) {
+      const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(a.blobPath)).toString();
+      out[ulid] = {
+        ulid,
+        name: a.meta.name,
+        mime: a.meta.mime,
+        size: a.meta.size,
+        uri,
+        isImage: this.deps.imageInlinePreview && isInlineImageMime(a.meta.mime),
+      };
+    }
+    return out;
   }
 
   private postInit(): void {
@@ -101,9 +204,10 @@ export class ChatPanel {
       channelName: view.channelName,
       messages: view.threads,
       users: this.model.getUsers(),
+      attachments: this.buildAttachmentInfos(),
       selfUserId: this.model.getSelfUserId(),
       l10n: getStrings(lang),
-      config: { attachmentMaxBytes: this.attachmentMaxBytes },
+      config: { attachmentMaxBytes: this.deps.attachmentMaxBytes },
     });
   }
 
@@ -116,6 +220,7 @@ export class ChatPanel {
       messages: view.threads,
       channelName: view.channelName,
       users: this.model.getUsers(),
+      attachments: this.buildAttachmentInfos(),
     });
   }
 
@@ -142,8 +247,17 @@ export class ChatPanel {
 <style>${WEBVIEW_CSS}</style>
 </head>
 <body>
+<div id="search" class="search hidden">
+  <input id="search-input" class="search-input" type="text">
+  <span id="search-count" class="search-count"></span>
+  <button id="search-prev" class="search-btn" title="prev">&#9650;</button>
+  <button id="search-next" class="search-btn" title="next">&#9660;</button>
+  <button id="search-close" class="search-btn" title="close">&#10005;</button>
+</div>
 <div id="messages" class="messages" aria-live="polite"></div>
+<div id="pending" class="pending hidden"></div>
 <div class="composer">
+  <button id="attach" class="composer-attach" title="attach">&#128206;</button>
   <textarea id="input" rows="1" class="composer-input"></textarea>
   <button id="send" class="composer-send"></button>
 </div>
@@ -206,12 +320,75 @@ body {
 .msg-body th, .msg-body td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; }
 .msg-body a { color: var(--vscode-textLink-foreground); }
 .msg-deleted { color: var(--vscode-descriptionForeground); font-style: italic; }
-.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; align-items: center; }
 .reaction {
-  display: inline-flex; gap: 4px; align-items: center;
+  display: inline-flex; gap: 4px; align-items: center; cursor: pointer;
   border: 1px solid var(--vscode-panel-border); border-radius: 10px;
   padding: 0 6px; font-size: 0.85em; background: var(--vscode-editorWidget-background);
+  user-select: none;
 }
+.reaction:hover { border-color: var(--vscode-focusBorder); }
+.reaction.mine { border-color: var(--vscode-focusBorder); background: var(--vscode-editor-selectionBackground); }
+.msg-actions { display: none; gap: 6px; margin-top: 2px; }
+.msg:hover .msg-actions { display: flex; }
+.action-btn {
+  background: none; border: 1px solid var(--vscode-panel-border); border-radius: 4px;
+  color: var(--vscode-foreground); cursor: pointer; font-size: 0.8em; padding: 0 6px;
+}
+.action-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.thread-toggle {
+  margin: 2px 0 2px 36px; cursor: pointer; color: var(--vscode-textLink-foreground);
+  font-size: 0.85em; user-select: none;
+}
+.thread-toggle:hover { text-decoration: underline; }
+.reply-composer { display: flex; gap: 6px; margin: 4px 0 8px 36px; }
+.reply-composer textarea {
+  flex: 1 1 auto; resize: none; font-family: inherit; font-size: inherit;
+  color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px;
+  padding: 4px 6px;
+}
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.attachment-image { max-width: 240px; max-height: 200px; border-radius: 4px; cursor: pointer; }
+.attachment-card {
+  display: inline-flex; flex-direction: column; cursor: pointer;
+  border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 6px 10px;
+  background: var(--vscode-editorWidget-background); max-width: 260px;
+}
+.attachment-card .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-card .size { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
+.emoji-picker {
+  position: fixed; z-index: 10; display: flex; flex-wrap: wrap; gap: 2px; max-width: 220px;
+  background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px; padding: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.emoji-picker button { background: none; border: none; cursor: pointer; font-size: 1.1em; padding: 2px 4px; border-radius: 4px; }
+.emoji-picker button:hover { background: var(--vscode-toolbar-hoverBackground); }
+.search { display: flex; gap: 4px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+.search.hidden { display: none; }
+.search-input {
+  flex: 1 1 auto; font-family: inherit; font-size: inherit;
+  color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; padding: 3px 6px;
+}
+.search-count { color: var(--vscode-descriptionForeground); font-size: 0.85em; min-width: 48px; text-align: center; }
+.search-btn { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; padding: 2px 6px; }
+.search-btn:hover { background: var(--vscode-toolbar-hoverBackground); border-radius: 4px; }
+.msg.search-hit { background: var(--vscode-editor-findMatchHighlightBackground); }
+.msg.search-current { background: var(--vscode-editor-findMatchBackground); }
+.pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-top: 1px solid var(--vscode-panel-border); }
+.pending.hidden { display: none; }
+.pending-chip {
+  display: inline-flex; gap: 6px; align-items: center; font-size: 0.85em;
+  border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 2px 6px;
+  background: var(--vscode-editorWidget-background);
+}
+.pending-chip button { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; }
+.composer-attach {
+  flex: 0 0 auto; align-self: flex-end; background: none; border: none; cursor: pointer;
+  font-size: 1.2em; padding: 4px 6px; color: var(--vscode-foreground);
+}
+.composer-attach:hover { background: var(--vscode-toolbar-hoverBackground); border-radius: 4px; }
 .composer {
   flex: 0 0 auto; display: flex; gap: 8px; padding: 8px 12px;
   border-top: 1px solid var(--vscode-panel-border);
