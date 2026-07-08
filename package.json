@@ -9,6 +9,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "categories": [
+    "Other"
+  ],
   "main": "./dist/extension.js",
   "l10n": "./l10n",
   "activationEvents": [
@@ -20,7 +23,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/webview/tsconfig.json",
-    "package": "vsce package"
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package --allow-missing-repository"
   },
   "contributes": {
     "viewsContainers": {
@@ -149,7 +153,8 @@
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.20.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"

@@ -45,6 +45,31 @@ export class PanelManager {
     chatPanel.onDidDispose(() => this.panels.delete(channelId));
   }
 
+  /** VSCode 再起動後に復元された既存パネルを引き受ける(WebviewPanelSerializer 用)。 */
+  async adopt(panel: vscode.WebviewPanel, channelId: string): Promise<void> {
+    const loaded = await this.model.loadChannel(channelId);
+    if (!loaded) {
+      panel.dispose();
+      return;
+    }
+    const existing = this.panels.get(channelId);
+    if (existing) {
+      panel.dispose();
+      existing.reveal();
+      return;
+    }
+    const chatPanel = new ChatPanel(
+      panel,
+      this.extensionUri,
+      this.model,
+      channelId,
+      this.rootPath,
+      this.getDeps(),
+    );
+    this.panels.set(channelId, chatPanel);
+    chatPanel.onDidDispose(() => this.panels.delete(channelId));
+  }
+
   dispose(): void {
     for (const panel of this.panels.values()) panel.dispose();
     this.panels.clear();

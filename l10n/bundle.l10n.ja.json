@@ -1,1 +1,20 @@
-{}
+{
+  "Enter a channel name": "チャンネル名を入力",
+  "e.g. general": "例: general",
+  "Enter a new channel name": "新しいチャンネル名を入力",
+  "Channel name must not be empty": "チャンネル名を空にはできません",
+  "Path to the shared folder (chat-root)": "共有フォルダ(chat-root)のパス",
+  "Your user ID (leave empty to use the OS user name)": "ユーザーID(空欄なら OS ユーザー名を使用)",
+  "Your display name": "表示名",
+  "The shared folder path (airgapChat.rootPath) is not configured. Run \"Airgap Chat: Setup\".": "共有フォルダのパス(airgapChat.rootPath)が未設定です。「Airgap Chat: 初期設定」を実行してください。",
+  "Cannot reach the shared folder: {0}": "共有フォルダに到達できません: {0}",
+  "\"{0}\" exceeds the size limit ({1} bytes) and was skipped.": "「{0}」はサイズ上限({1} バイト)を超えたためスキップしました。",
+  "Save attachment": "添付を保存",
+  "Integrity check (SHA-256) failed for \"{0}\". The file may be corrupted.": "「{0}」の完全性チェック(SHA-256)に失敗しました。ファイルが破損している可能性があります。",
+  "Saved: {0}": "保存しました: {0}",
+  "Attachment not found.": "添付が見つかりません。",
+  "Open this link in your browser?\n{0}": "このリンクをブラウザで開きますか?\n{0}",
+  "Open": "開く",
+  "Cancel": "キャンセル",
+  "Offline: the message was queued and will be sent when the shared folder is reachable.": "オフラインのため送信キューに追加しました。共有フォルダに到達できるようになったら送信されます。"
+}

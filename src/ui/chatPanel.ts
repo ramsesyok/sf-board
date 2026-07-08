@@ -9,7 +9,8 @@ import * as path from "path";
 import * as fsp from "fs/promises";
 import type { ChatModel } from "../model/chatModel";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../shared/protocol";
-import { getStrings, pickLang, t } from "../shared/strings";
+import { getStrings, pickLang } from "../shared/strings";
+import { hl } from "../host/hostL10n";
 import { mimeFromFilename, isInlineImageMime } from "../shared/mime";
 import { verifyAttachment } from "../core/store";
 
@@ -55,6 +56,15 @@ export class ChatPanel {
         if (updatedId === this.channelId) this.postChannelUpdated();
       }),
     );
+
+    // パネルがアクティブになったら読了位置を進める(§7)。
+    this.panel.onDidChangeViewState(
+      (e) => {
+        if (e.webviewPanel.active) void this.model.markRead(this.channelId);
+      },
+      undefined,
+      this.disposables,
+    );
   }
 
   reveal(column?: vscode.ViewColumn): void {
@@ -82,8 +92,11 @@ export class ChatPanel {
         break;
       case "sendMessage": {
         try {
-          await this.model.sendMessage(this.channelId, msg.body, msg.threadId);
+          const result = await this.model.sendMessage(this.channelId, msg.body, msg.threadId, msg.attachments);
           this.post({ kind: "sendResult", requestId: msg.requestId, ok: true });
+          if (result === "queued") {
+            void vscode.window.showInformationMessage(hl("sendQueued"));
+          }
         } catch (err) {
           this.post({
             kind: "sendResult",
@@ -113,7 +126,6 @@ export class ChatPanel {
   }
 
   private async handlePickAttachment(requestId: string): Promise<void> {
-    const lang = pickLang(vscode.env.language);
     const picked = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFolders: false });
     const files: { ulid: string; name: string; size: number }[] = [];
     if (picked) {
@@ -122,7 +134,7 @@ export class ChatPanel {
         const name = path.basename(uri.fsPath);
         if (data.length > this.deps.attachmentMaxBytes) {
           void vscode.window.showErrorMessage(
-            t(lang, "attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
+            hl("attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
           );
           continue;
         }
@@ -135,29 +147,27 @@ export class ChatPanel {
   }
 
   private async handleOpenAttachment(ulid: string): Promise<void> {
-    const lang = pickLang(vscode.env.language);
     const stored = this.model.getChannelAttachments(this.channelId)[ulid];
     if (!stored) {
-      void vscode.window.showErrorMessage(t(lang, "attachNotFound"));
+      void vscode.window.showErrorMessage(hl("attachNotFound"));
       return;
     }
     const target = await vscode.window.showSaveDialog({
-      title: t(lang, "attachSaveTitle"),
+      title: hl("attachSaveTitle"),
       defaultUri: vscode.Uri.file(stored.meta.name),
     });
     if (!target) return;
     // 保存時に SHA-256 検証する(DESIGN.md §4.3)。
     const ok = await verifyAttachment(stored.blobPath, stored.meta.sha256);
     if (!ok) {
-      void vscode.window.showErrorMessage(t(lang, "attachVerifyFailed", stored.meta.name));
+      void vscode.window.showErrorMessage(hl("attachVerifyFailed", stored.meta.name));
       return;
     }
     await fsp.copyFile(stored.blobPath, target.fsPath);
-    void vscode.window.showInformationMessage(t(lang, "attachSaved", target.fsPath));
+    void vscode.window.showInformationMessage(hl("attachSaved", target.fsPath));
   }
 
   private async handleOpenLink(href: string): Promise<void> {
-    const lang = pickLang(vscode.env.language);
     // §10: http(s) のみ、URL 全文を確認ダイアログで提示してから openExternal に委譲。
     let uri: vscode.Uri;
     try {
@@ -166,12 +176,9 @@ export class ChatPanel {
       return;
     }
     if (uri.scheme !== "http" && uri.scheme !== "https") return;
-    const choice = await vscode.window.showWarningMessage(
-      t(lang, "linkConfirm", href),
-      { modal: true },
-      t(lang, "linkOpen"),
-    );
-    if (choice === t(lang, "linkOpen")) {
+    const openLabel = hl("linkOpen");
+    const choice = await vscode.window.showWarningMessage(hl("linkConfirm", href), { modal: true }, openLabel);
+    if (choice === openLabel) {
       await vscode.env.openExternal(uri);
     }
   }
@@ -209,6 +216,7 @@ export class ChatPanel {
       l10n: getStrings(lang),
       config: { attachmentMaxBytes: this.deps.attachmentMaxBytes },
     });
+    if (this.panel.active) void this.model.markRead(this.channelId);
   }
 
   private postChannelUpdated(): void {
@@ -222,6 +230,8 @@ export class ChatPanel {
       users: this.model.getUsers(),
       attachments: this.buildAttachmentInfos(),
     });
+    // アクティブ表示中に届いた分は読了にする。
+    if (this.panel.active) void this.model.markRead(this.channelId);
   }
 
   private buildHtml(): string {
@@ -290,6 +300,7 @@ body {
 .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 24px; }
 .msg { display: flex; gap: 8px; padding: 4px 0; }
 .msg.reply { margin-left: 28px; }
+.msg.pending { opacity: 0.6; }
 .avatar {
   flex: 0 0 auto; width: 28px; height: 28px; border-radius: 4px;
   display: flex; align-items: center; justify-content: center;

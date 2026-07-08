@@ -1,0 +1,14 @@
+# VSIX に含めないもの。dist/ はバンドル済みで自己完結のため node_modules は同梱しない。
+.vscode/**
+src/**
+node_modules/**
+**/*.map
+**/tsconfig*.json
+esbuild.js
+DESIGN.md
+DESIGN_EXTENSION.md
+CLAUDE.md
+.gitignore
+.git/**
+**/*.test.ts
+vitest.config.*

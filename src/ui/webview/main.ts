@@ -49,6 +49,17 @@ const expandedThreads = new Set<string>(); // 展開中の親メッセージ ID
 const replyDrafts = new Map<string, string>(); // 親 ID → 返信ドラフト本文
 let pendingAttachments: { ulid: string; name: string; size: number }[] = [];
 
+// 楽観的 UI(§6.4): 送信直後に半透明で即時表示し、正規メッセージ到着で除去する。
+interface PendingMsg {
+  requestId: string;
+  body: string;
+  threadId?: string;
+  ts: string;
+  state: "pending" | "error";
+}
+let pendingMessages: PendingMsg[] = [];
+const claimedRealIds = new Set<string>(); // pending と突合済みの正規メッセージ ID
+
 function tr(key: string): string {
   return strings[key] ?? key;
 }
@@ -88,10 +99,18 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       users = msg.users;
       attachments = msg.attachments;
       currentThreads = msg.messages;
+      claimPending();
       render();
       break;
     case "sendResult":
-      // Phase 4 で楽観的 UI(pending/再送)を実装。現状は再読込で反映される。
+      if (!msg.ok) {
+        const p = pendingMessages.find((x) => x.requestId === msg.requestId);
+        if (p) {
+          p.state = "error";
+          render();
+        }
+      }
+      // ok の場合は次の channelUpdated で正規メッセージと突合して除去する。
       break;
     case "attachmentPicked":
       for (const f of msg.files) pendingAttachments.push(f);
@@ -111,7 +130,7 @@ function applyStrings(): void {
 function render(): void {
   const atBottom = isScrolledToBottom();
 
-  if (currentThreads.length === 0) {
+  if (currentThreads.length === 0 && pendingMessages.length === 0) {
     nodeCache.clear();
     messagesEl.replaceChildren(emptyPlaceholder());
     return;
@@ -132,8 +151,16 @@ function render(): void {
       for (const reply of thread.replies) {
         frag.appendChild(getMessageEl(reply, true, seen));
       }
+      for (const p of pendingMessages.filter((x) => x.threadId === thread.parent.id)) {
+        frag.appendChild(createPendingEl(p, true));
+      }
       frag.appendChild(replyComposer(thread.parent.id));
     }
+  }
+
+  // トップレベルの pending は最下部にまとめて表示。
+  for (const p of pendingMessages.filter((x) => x.threadId === undefined)) {
+    frag.appendChild(createPendingEl(p, false));
   }
 
   for (const id of [...nodeCache.keys()]) {
@@ -142,6 +169,68 @@ function render(): void {
   messagesEl.replaceChildren(frag);
   applySearchHighlights();
   if (atBottom) scrollToBottom();
+}
+
+// ---- 楽観的 UI ----
+function claimPending(): void {
+  const remaining: PendingMsg[] = [];
+  for (const p of pendingMessages) {
+    const match = findSelfUnclaimed(p.body, p.threadId);
+    if (match) claimedRealIds.add(match);
+    else remaining.push(p);
+  }
+  pendingMessages = remaining;
+}
+
+function findSelfUnclaimed(body: string, threadId: string | undefined): string | undefined {
+  for (const thread of currentThreads) {
+    const candidates = threadId === undefined ? [thread.parent] : thread.replies;
+    for (const m of candidates) {
+      if (threadId !== undefined && thread.parent.id !== threadId) continue;
+      if (m.author === selfUserId && m.body === body && !m.deleted && !claimedRealIds.has(m.id)) {
+        return m.id;
+      }
+    }
+  }
+  return undefined;
+}
+
+function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
+  const row = document.createElement("div");
+  row.className = isReply ? "msg reply pending own" : "msg pending own";
+  const displayName = users[selfUserId]?.displayName || selfUserId;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = initialsOf(displayName);
+  row.appendChild(avatar);
+
+  const main = document.createElement("div");
+  main.className = "msg-main";
+  const head = document.createElement("div");
+  head.className = "msg-head";
+  head.appendChild(span("msg-author", displayName));
+  head.appendChild(span("msg-time", p.state === "error" ? tr("sendFailed") : tr("pending")));
+  main.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "msg-body";
+  body.innerHTML = renderMarkdown(p.body);
+  main.appendChild(body);
+
+  if (p.state === "error") {
+    const resend = document.createElement("button");
+    resend.className = "action-btn";
+    resend.textContent = tr("resend");
+    resend.addEventListener("click", () => {
+      p.state = "pending";
+      postMsg({ kind: "sendMessage", requestId: p.requestId, body: p.body, ...(p.threadId ? { threadId: p.threadId } : {}) });
+      render();
+    });
+    main.appendChild(resend);
+  }
+  row.appendChild(main);
+  return row;
 }
 
 function getMessageEl(msg: MessageState, isReply: boolean, seen: Set<string>): HTMLElement {
@@ -296,26 +385,26 @@ function replyComposer(parentId: string): HTMLElement {
   ta.value = replyDrafts.get(parentId) ?? "";
   ta.dataset.parent = parentId;
   ta.addEventListener("input", () => replyDrafts.set(parentId, ta.value));
+  const submit = (): void => {
+    const body = ta.value.trim();
+    if (!body) return;
+    const requestId = newRequestId();
+    postMsg({ kind: "sendMessage", requestId, body, threadId: parentId });
+    pendingMessages.push({ requestId, body, threadId: parentId, ts: new Date().toISOString(), state: "pending" });
+    replyDrafts.delete(parentId);
+    ta.value = "";
+    render();
+  };
   ta.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      const body = ta.value.trim();
-      if (!body) return;
-      postMsg({ kind: "sendMessage", requestId: newRequestId(), body, threadId: parentId });
-      replyDrafts.delete(parentId);
-      ta.value = "";
+      submit();
     }
   });
   const btn = document.createElement("button");
   btn.className = "action-btn";
   btn.textContent = tr("send");
-  btn.addEventListener("click", () => {
-    const body = ta.value.trim();
-    if (!body) return;
-    postMsg({ kind: "sendMessage", requestId: newRequestId(), body, threadId: parentId });
-    replyDrafts.delete(parentId);
-    ta.value = "";
-  });
+  btn.addEventListener("click", submit);
   wrap.appendChild(ta);
   wrap.appendChild(btn);
   return wrap;
@@ -523,15 +612,21 @@ function send(): void {
   const body = inputEl.value.trim();
   const atts = pendingAttachments.map((a) => a.ulid);
   if (!body && atts.length === 0) return;
+  const requestId = newRequestId();
   postMsg({
     kind: "sendMessage",
-    requestId: newRequestId(),
+    requestId,
     body,
     ...(atts.length > 0 ? { attachments: atts } : {}),
   });
+  // 楽観表示は本文のみのメッセージに限定(添付付きは突合が曖昧になるため次回更新で反映)。
+  if (body && atts.length === 0) {
+    pendingMessages.push({ requestId, body, ts: new Date().toISOString(), state: "pending" });
+  }
   inputEl.value = "";
   pendingAttachments = [];
   renderPending();
+  render();
   autoResize();
 }
 sendEl.addEventListener("click", send);

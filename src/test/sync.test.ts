@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs/promises";
-import { snapshotCursors, diffCursors, type CursorSnapshot } from "../core/sync";
+import { snapshotCursors, diffCursors, updateHealth, type CursorSnapshot } from "../core/sync";
 import { writeCursor, makeTempRoot, initWorkspace } from "../core/store";
 
 let root: string;
@@ -41,5 +41,29 @@ describe("sync: snapshotCursors / diffCursors(照合層 DESIGN.md §5.1)", () =>
   it("変化が無ければ空配列", () => {
     const snap: CursorSnapshot = { "a.json": { mtimeMs: 100, size: 10 } };
     expect(diffCursors(snap, snap)).toEqual([]);
+  });
+});
+
+describe("sync: updateHealth(ヘルスチェック DESIGN.md §5.4)", () => {
+  it("監視通知があればカウンタをリセットする", () => {
+    const r = updateHealth(2, true, true);
+    expect(r.consecutiveMissed).toBe(0);
+    expect(r.shouldFallback).toBe(false);
+  });
+
+  it("変化ありだが監視通知なしで取りこぼしをカウントする", () => {
+    let missed = 0;
+    let last = updateHealth(missed, true, false);
+    expect(last.consecutiveMissed).toBe(1);
+    last = updateHealth(last.consecutiveMissed, true, false);
+    last = updateHealth(last.consecutiveMissed, true, false);
+    expect(last.consecutiveMissed).toBe(3);
+    expect(last.shouldFallback).toBe(true);
+  });
+
+  it("変化も通知も無ければカウンタは変わらない", () => {
+    const r = updateHealth(1, false, false);
+    expect(r.consecutiveMissed).toBe(1);
+    expect(r.shouldFallback).toBe(false);
   });
 });
