@@ -1,7 +1,7 @@
 {
-  "name": "airgap-chat",
-  "displayName": "Airgap Chat",
-  "description": "エアギャップ環境向けサーバレス・チャット(共有ネットワークフォルダのみで動作)",
+  "name": "sf-board",
+  "displayName": "SF Board",
+  "description": "エアギャップ環境向けサーバレス・ボード(共有ネットワークフォルダのみで動作)",
   "version": "0.0.1",
   "publisher": "airgap",
   "private": true,
@@ -15,7 +15,7 @@
   "main": "./dist/extension.js",
   "l10n": "./l10n",
   "activationEvents": [
-    "onView:airgapChatChannels"
+    "onView:sfBoardChannels"
   ],
   "scripts": {
     "build": "node esbuild.js",
@@ -30,129 +30,129 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "airgapChat",
-          "title": "%viewContainer.airgapChat%",
+          "id": "sfBoard",
+          "title": "%viewContainer.sfBoard%",
           "icon": "media/chat.svg"
         }
       ]
     },
     "views": {
-      "airgapChat": [
+      "sfBoard": [
         {
-          "id": "airgapChatChannels",
+          "id": "sfBoardChannels",
           "name": "%view.channels%"
         }
       ]
     },
     "commands": [
       {
-        "command": "airgapChat.openChannel",
+        "command": "sfBoard.openChannel",
         "title": "%command.openChannel%",
-        "category": "Airgap Chat"
+        "category": "SF Board"
       },
       {
-        "command": "airgapChat.createChannel",
+        "command": "sfBoard.createChannel",
         "title": "%command.createChannel%",
-        "category": "Airgap Chat",
+        "category": "SF Board",
         "icon": "$(add)"
       },
       {
-        "command": "airgapChat.renameChannel",
+        "command": "sfBoard.renameChannel",
         "title": "%command.renameChannel%",
-        "category": "Airgap Chat"
+        "category": "SF Board"
       },
       {
-        "command": "airgapChat.refresh",
+        "command": "sfBoard.refresh",
         "title": "%command.refresh%",
-        "category": "Airgap Chat",
+        "category": "SF Board",
         "icon": "$(refresh)"
       },
       {
-        "command": "airgapChat.setup",
+        "command": "sfBoard.setup",
         "title": "%command.setup%",
-        "category": "Airgap Chat"
+        "category": "SF Board"
       },
       {
-        "command": "airgapChat.showDiagnostics",
+        "command": "sfBoard.showDiagnostics",
         "title": "%command.showDiagnostics%",
-        "category": "Airgap Chat"
+        "category": "SF Board"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "airgapChat.createChannel",
-          "when": "view == airgapChatChannels",
+          "command": "sfBoard.createChannel",
+          "when": "view == sfBoardChannels",
           "group": "navigation@1"
         },
         {
-          "command": "airgapChat.refresh",
-          "when": "view == airgapChatChannels",
+          "command": "sfBoard.refresh",
+          "when": "view == sfBoardChannels",
           "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
-          "command": "airgapChat.renameChannel",
-          "when": "view == airgapChatChannels && viewItem == channel",
+          "command": "sfBoard.renameChannel",
+          "when": "view == sfBoardChannels && viewItem == channel",
           "group": "inline"
         }
       ],
       "commandPalette": [
         {
-          "command": "airgapChat.openChannel",
+          "command": "sfBoard.openChannel",
           "when": "false"
         },
         {
-          "command": "airgapChat.renameChannel",
+          "command": "sfBoard.renameChannel",
           "when": "false"
         }
       ]
     },
     "configuration": {
-      "title": "Airgap Chat",
+      "title": "SF Board",
       "properties": {
-        "airgapChat.rootPath": {
+        "sfBoard.rootPath": {
           "type": "string",
           "default": "",
           "markdownDescription": "%config.rootPath%"
         },
-        "airgapChat.userId": {
+        "sfBoard.userId": {
           "type": "string",
           "default": "",
           "markdownDescription": "%config.userId%"
         },
-        "airgapChat.displayName": {
+        "sfBoard.displayName": {
           "type": "string",
           "default": "",
           "markdownDescription": "%config.displayName%"
         },
-        "airgapChat.poll.reconcileSec": {
+        "sfBoard.poll.reconcileSec": {
           "type": "number",
           "default": 90,
           "markdownDescription": "%config.poll.reconcileSec%"
         },
-        "airgapChat.poll.fallbackSec": {
+        "sfBoard.poll.fallbackSec": {
           "type": "number",
           "default": 4,
           "markdownDescription": "%config.poll.fallbackSec%"
         },
-        "airgapChat.watch.enabled": {
+        "sfBoard.watch.enabled": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.watch.enabled%"
         },
-        "airgapChat.attachmentMaxBytes": {
+        "sfBoard.attachmentMaxBytes": {
           "type": "number",
           "default": 10485760,
           "markdownDescription": "%config.attachmentMaxBytes%"
         },
-        "airgapChat.imageInlinePreview": {
+        "sfBoard.imageInlinePreview": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.imageInlinePreview%"
         },
-        "airgapChat.diagnostics.enabled": {
+        "sfBoard.diagnostics.enabled": {
           "type": "boolean",
           "default": false,
           "markdownDescription": "%config.diagnostics.enabled%"

@@ -1,5 +1,5 @@
 {
-  "viewContainer.airgapChat": "Airgap Chat",
+  "viewContainer.sfBoard": "SF Board",
   "view.channels": "チャンネル",
   "command.openChannel": "チャンネルを開く",
   "command.createChannel": "チャンネルを作成",
@@ -15,5 +15,5 @@
   "config.watch.enabled": "fs.watch 監視層の有効化。Phase 4 で使用。",
   "config.attachmentMaxBytes": "添付ファイルの上限サイズ(バイト)。",
   "config.imageInlinePreview": "画像添付のインラインプレビュー表示。",
-  "config.diagnostics.enabled": "同期・更新検知の診断ログを「Airgap Chat」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。"
+  "config.diagnostics.enabled": "同期・更新検知の診断ログを「SF Board」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。"
 }

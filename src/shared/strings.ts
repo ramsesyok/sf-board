@@ -42,7 +42,7 @@ const en = {
   "setupRootPrompt": "Path to the shared folder (chat-root)",
   "setupUserIdPrompt": "Your user ID (leave empty to use the OS user name)",
   "setupDisplayNamePrompt": "Your display name",
-  "rootPathNotConfigured": "The shared folder path (airgapChat.rootPath) is not configured. Run \"Airgap Chat: Setup\".",
+  "rootPathNotConfigured": "The shared folder path (sfBoard.rootPath) is not configured. Run \"SF Board: Setup\".",
   "rootPathUnreachable": "Cannot reach the shared folder: {0}",
 } as const;
 
@@ -82,7 +82,7 @@ const ja: Record<StringKey, string> = {
   "setupRootPrompt": "共有フォルダ(chat-root)のパス",
   "setupUserIdPrompt": "ユーザーID(空欄なら OS ユーザー名を使用)",
   "setupDisplayNamePrompt": "表示名",
-  "rootPathNotConfigured": "共有フォルダのパス(airgapChat.rootPath)が未設定です。「Airgap Chat: 初期設定」を実行してください。",
+  "rootPathNotConfigured": "共有フォルダのパス(sfBoard.rootPath)が未設定です。「SF Board: 初期設定」を実行してください。",
   "rootPathUnreachable": "共有フォルダに到達できません: {0}",
 };
 

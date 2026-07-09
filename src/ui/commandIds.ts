@@ -1,9 +1,9 @@
-// コマンド ID(接頭辞は airgapChat. に統一)。DESIGN_EXTENSION.md §8。
-export const OPEN_CHANNEL_COMMAND = "airgapChat.openChannel";
-export const CREATE_CHANNEL_COMMAND = "airgapChat.createChannel";
-export const RENAME_CHANNEL_COMMAND = "airgapChat.renameChannel";
-export const REFRESH_COMMAND = "airgapChat.refresh";
-export const SETUP_COMMAND = "airgapChat.setup";
-export const SHOW_DIAGNOSTICS_COMMAND = "airgapChat.showDiagnostics";
+// コマンド ID(接頭辞は sfBoard. に統一)。DESIGN_EXTENSION.md §8。
+export const OPEN_CHANNEL_COMMAND = "sfBoard.openChannel";
+export const CREATE_CHANNEL_COMMAND = "sfBoard.createChannel";
+export const RENAME_CHANNEL_COMMAND = "sfBoard.renameChannel";
+export const REFRESH_COMMAND = "sfBoard.refresh";
+export const SETUP_COMMAND = "sfBoard.setup";
+export const SHOW_DIAGNOSTICS_COMMAND = "sfBoard.showDiagnostics";
 
-export const CHANNELS_VIEW_ID = "airgapChatChannels";
+export const CHANNELS_VIEW_ID = "sfBoardChannels";

@@ -83,7 +83,7 @@ export interface SyncEngineOptions {
   reconcileMs: number;
   /** フォールバック層の基本周期(ミリ秒)。§5.1 では 2〜5 秒。 */
   fallbackMs: number;
-  /** 監視層を有効にするか(設定 airgapChat.watch.enabled)。false なら最初からフォールバック。 */
+  /** 監視層を有効にするか(設定 sfBoard.watch.enabled)。false なら最初からフォールバック。 */
   watchEnabled: boolean;
   /** 変化検出時のコールバック(変化したカーソルファイル名の配列)。 */
   onChange: (changedCursors: string[]) => void | Promise<void>;

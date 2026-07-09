@@ -23,7 +23,7 @@ import { hl } from "./host/hostL10n";
 import { OutputChannelDiagnosticsLogger } from "./host/diagnosticsLogger";
 import type { DiagnosticsLogger } from "./core/diagnostics";
 
-const CONFIG_SECTION = "airgapChat";
+const CONFIG_SECTION = "sfBoard";
 
 /** 同期診断ロガー(activate で 1 度だけ生成。無効時は書き込まない)。 */
 let diagnosticsLogger: DiagnosticsLogger | undefined;
@@ -40,7 +40,7 @@ let runtime: Runtime | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // 同期診断ログの出力チャネル(LogOutputChannel)。診断有効時のみ書き込む。
-  const logChannel = vscode.window.createOutputChannel("Airgap Chat", { log: true });
+  const logChannel = vscode.window.createOutputChannel("SF Board", { log: true });
   context.subscriptions.push(logChannel);
   diagnosticsLogger = new OutputChannelDiagnosticsLogger(
     logChannel,
@@ -144,8 +144,8 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
     watchEnabled: config.get<boolean>("watch.enabled") ?? true,
     onChange: () => void model.reconcileAll(),
     isActive: () => vscode.window.state.focused,
-    onError: (e) => console.error("[airgapChat] sync error", e),
-    onModeChange: (mode) => console.info(`[airgapChat] sync mode: ${mode}`),
+    onError: (e) => console.error("[sfBoard] sync error", e),
+    onModeChange: (mode) => console.info(`[sfBoard] sync mode: ${mode}`),
     logger: diagnosticsLogger,
   });
 

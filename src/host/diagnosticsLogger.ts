@@ -1,6 +1,6 @@
 // 同期診断ロガーの Host 実装。VSCode の LogOutputChannel へ出力する。
-// - 出力先は「出力」パネルの Airgap Chat(LogOutputChannel は拡張のログディレクトリへ自動保存)。
-// - 診断が無効(airgapChat.diagnostics.enabled=false)のときは何も書かない。
+// - 出力先は「出力」パネルの SF Board(LogOutputChannel は拡張のログディレクトリへ自動保存)。
+// - 診断が無効(sfBoard.diagnostics.enabled=false)のときは何も書かない。
 // - 記録するのはメタデータのみ(呼び出し側がメッセージ本文を渡さない前提)。
 
 import * as vscode from "vscode";

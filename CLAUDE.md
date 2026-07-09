@@ -29,7 +29,7 @@
 - ファイル監視は素の `fs.watch` を使う。chokidar と VSCode の `FileSystemWatcher` はネットワークドライブで信頼できないため使用禁止
 - Webview: `enableScripts: true` + 厳格な CSP 必須。Node API へのアクセス禁止。ファイル I/O・パス解決・ダイアログ表示はすべて Extension Host 側で行う
 - Markdown: `markdown-it`(`html: false`)+ DOMPurify サニタイズ必須。画像は `attachment://` スキームのみ許可
-- 設定キー接頭辞は `airgapChat.`、コマンド ID 接頭辞は `airgapChat.` に統一
+- 設定キー接頭辞は `sfBoard.`、コマンド ID 接頭辞は `sfBoard.` に統一(拡張名は `sf-board` / 表示名 `SF Board`。旧称 `airgapChat.` / `airgap-chat` から改称)
 - UI 文言はハードコード禁止。`strings.ts` にキー定義し、Host は `vscode.l10n.t()`、Webview は init メッセージで受け取った辞書を使う(日英対応)
 
 ## ディレクトリ構成

@@ -6,7 +6,7 @@
   "Path to the shared folder (chat-root)": "共有フォルダ(chat-root)のパス",
   "Your user ID (leave empty to use the OS user name)": "ユーザーID(空欄なら OS ユーザー名を使用)",
   "Your display name": "表示名",
-  "The shared folder path (airgapChat.rootPath) is not configured. Run \"Airgap Chat: Setup\".": "共有フォルダのパス(airgapChat.rootPath)が未設定です。「Airgap Chat: 初期設定」を実行してください。",
+  "The shared folder path (sfBoard.rootPath) is not configured. Run \"SF Board: Setup\".": "共有フォルダのパス(sfBoard.rootPath)が未設定です。「SF Board: 初期設定」を実行してください。",
   "Cannot reach the shared folder: {0}": "共有フォルダに到達できません: {0}",
   "\"{0}\" exceeds the size limit ({1} bytes) and was skipped.": "「{0}」はサイズ上限({1} バイト)を超えたためスキップしました。",
   "Save attachment": "添付を保存",

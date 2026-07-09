@@ -64,7 +64,7 @@
 
 ## 4. パネル管理(エディタタブ内 Webview)
 
-- `vscode.window.createWebviewPanel(viewType: "airgapChat.channel", ...)` でチャンネルごとにパネルを作成。
+- `vscode.window.createWebviewPanel(viewType: "sfBoard.channel", ...)` でチャンネルごとにパネルを作成。
 - **1チャンネル=最大1パネル**。TreeView から同じチャンネルを開いた場合は既存パネルを `reveal()` する。PanelManager が `Map<channelId, ChatPanel>` を保持。
 - `retainContextWhenHidden: true` とする。50人規模・テキスト中心なのでメモリより実装単純性を優先する。
 - `WebviewPanelSerializer` を登録し、VSCode再起動後にタブが復元されたら `state.channelId` から再初期化する(Webview 側で `vscode.setState({channelId})` を保持)。
@@ -165,7 +165,7 @@ type WebviewMessage =
 
 ## 7. TreeView(サイドバー)
 
-- ViewContainer `airgapChat` を activitybar に追加。アイコンは同梱 SVG。
+- ViewContainer `sfBoard` を activitybar に追加。アイコンは同梱 SVG。
 - ツリー項目: チャンネル一覧(名前順)。未読ありは太字+未読件数バッジ(`TreeItem.description`)。クリックでパネルを開く/reveal。
 - インラインアクション: チャンネル作成(＋)、リフレッシュ。コンテキストメニュー: リネーム。
 - 未読判定: ローカルの最終読了 ULID(DESIGN.md §6)と各チャンネル最新イベント ULID の比較。パネルがアクティブになった時点で読了を更新する。
@@ -176,29 +176,29 @@ type WebviewMessage =
 
 | コマンドID | 内容 |
 |---|---|
-| `airgapChat.openChannel` | チャンネルをタブで開く(TreeViewクリックから) |
-| `airgapChat.createChannel` | チャンネル作成(InputBoxで名前入力) |
-| `airgapChat.renameChannel` | チャンネルリネーム |
-| `airgapChat.refresh` | 手動同期(照合ポーリングを即時実行) |
-| `airgapChat.setup` | 初期設定ウィザード(rootPath/userId/displayName を順に入力) |
-| `airgapChat.showDiagnostics` | 同期診断ログの出力チャネルを表示(§8.1) |
+| `sfBoard.openChannel` | チャンネルをタブで開く(TreeViewクリックから) |
+| `sfBoard.createChannel` | チャンネル作成(InputBoxで名前入力) |
+| `sfBoard.renameChannel` | チャンネルリネーム |
+| `sfBoard.refresh` | 手動同期(照合ポーリングを即時実行) |
+| `sfBoard.setup` | 初期設定ウィザード(rootPath/userId/displayName を順に入力) |
+| `sfBoard.showDiagnostics` | 同期診断ログの出力チャネルを表示(§8.1) |
 
 ### 設定(DESIGN.md §7 の表に追加)
 
 | キー | 内容 | 既定値 |
 |---|---|---|
-| `airgapChat.attachmentMaxBytes` | 添付サイズ上限 | 10485760 |
-| `airgapChat.imageInlinePreview` | 画像のインライン表示 | true |
-| `airgapChat.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
+| `sfBoard.attachmentMaxBytes` | 添付サイズ上限 | 10485760 |
+| `sfBoard.imageInlinePreview` | 画像のインライン表示 | true |
+| `sfBoard.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
 
-設定キーの接頭辞は `airgapChat.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
+設定キーの接頭辞は `sfBoard.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
 
 ### 8.1 同期診断ログ(任意・既定で無効)
 
 同期(fs.watch 監視 / 照合 / フォールバック、DESIGN.md §5)の挙動を現場で観測するための任意ログ。SMB/NFS 実環境での通知到達・モード切替・取りこぼしの調査に用いる(§12 手動テストの補助)。
 
-- **有効化**: `airgapChat.diagnostics.enabled`(既定 `false`)。**有効時のみ**出力する。
-- **出力先**: VSCode の `LogOutputChannel`「Airgap Chat」。`window.createOutputChannel(name, { log:true })` で生成し、VSCode が拡張のログディレクトリへ自動保存する。外部送信・テレメトリは行わない(DESIGN.md 技術的制約の外部接続ゼロを厳守)。共有フォルダには一切書き込まない。
+- **有効化**: `sfBoard.diagnostics.enabled`(既定 `false`)。**有効時のみ**出力する。
+- **出力先**: VSCode の `LogOutputChannel`「SF Board」。`window.createOutputChannel(name, { log:true })` で生成し、VSCode が拡張のログディレクトリへ自動保存する。外部送信・テレメトリは行わない(DESIGN.md 技術的制約の外部接続ゼロを厳守)。共有フォルダには一切書き込まない。
 - **記録内容(メタデータのみ)**: 同期イベント名 + メタデータ(`change.detected`(source/件数/カーソル名)、`reconcile.tick`(foundChange/watchNotified/missed)、`sync.fallback`、`watch.notify` / `watch.error` / `watch.retry`、`channel.updated`(channelId/イベント数/最新ULID)、`queue.flush`、`send.queued` 等)。**メッセージ本文・添付内容などの機密情報は記録しない**。
 - **実装**: core 層は vscode 非依存の `DiagnosticsLogger` インターフェース(`core/diagnostics.ts`)で抽象化し、SyncEngine / ChatModel を計装する。Host が `LogOutputChannel` 実装(`host/diagnosticsLogger.ts`)を注入する。無効時は no-op ロガーを用い、`isEnabled()` 判定で出力を抑止する。`debug` レベルの高頻度イベント(`watch.notify` / `reconcile.tick` 等)は出力パネルのログレベルを上げたときのみ表示される。
 
@@ -227,7 +227,7 @@ type WebviewMessage =
 
 - バンドラ: `esbuild`。Host 用(`dist/extension.js`, CommonJS, external: vscode)と Webview 用(`dist/webview.js`, IIFE)の2ターゲット。
 - **全依存(markdown-it / DOMPurify / highlight.js / ulid実装)をバンドルに内包**する。実行時のネットワークアクセスは共有フォルダ以外に一切発生させない。テレメトリ送信類は入れない。
-- `vsce package` で VSIX を生成。インストール手順(ドキュメントに記載): `code --install-extension airgap-chat-x.y.z.vsix`。
+- `vsce package` で VSIX を生成。インストール手順(ドキュメントに記載): `code --install-extension sf-board-x.y.z.vsix`。
 - `engines.vscode` は `^1.85.0` とする。
 - 開発環境がエアギャップ外である前提で devDependencies は通常運用とするが、成果物 VSIX が自己完結であることをリリースごとに検証する。
 

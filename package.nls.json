@@ -1,5 +1,5 @@
 {
-  "viewContainer.airgapChat": "Airgap Chat",
+  "viewContainer.sfBoard": "SF Board",
   "view.channels": "Channels",
   "command.openChannel": "Open Channel",
   "command.createChannel": "Create Channel",
@@ -15,5 +15,5 @@
   "config.watch.enabled": "Enable the fs.watch layer (used in Phase 4).",
   "config.attachmentMaxBytes": "Maximum attachment size in bytes.",
   "config.imageInlinePreview": "Show inline previews for image attachments.",
-  "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"Airgap Chat\" output channel (metadata only; no message content). Disabled by default."
+  "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"SF Board\" output channel (metadata only; no message content). Disabled by default."
 }
