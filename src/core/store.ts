@@ -75,12 +75,33 @@ function randomToken(): string {
 }
 
 /**
+ * ディレクトリを作成する。**既に存在する場合は成功扱い**とする。
+ * ネットワークファイルシステム(SMB/NFS)では、既存ディレクトリへの mkdir が
+ * EEXIST/EPERM/EACCES を返すことがある(作成権限が無い共有でも既存なら書き込みは可能)。
+ * mkdir が失敗しても、事後にディレクトリとして存在すれば無視する。
+ */
+export async function ensureDir(dir: string): Promise<void> {
+  try {
+    await fsp.mkdir(dir, { recursive: true });
+    return;
+  } catch (err) {
+    let isDir = false;
+    try {
+      isDir = (await fsp.stat(dir)).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) throw err;
+  }
+}
+
+/**
  * 新規ファイルを一時名で書き切ってから本来名へリネームする(同一ボリューム内でアトミック)。
  * 既存ファイルがあっても rename で置換される点に注意(呼び出し側で不変性を担保すること)。
  */
 export async function atomicWriteFile(filePath: string, data: string | Buffer): Promise<void> {
   const dir = path.dirname(filePath);
-  await fsp.mkdir(dir, { recursive: true });
+  await ensureDir(dir);
   const tmpPath = path.join(dir, `${path.basename(filePath)}.tmp.${randomToken()}`);
   const fh = await fsp.open(tmpPath, "w");
   try {
@@ -122,7 +143,7 @@ export async function appendEvent(
   date: Date = new Date(),
 ): Promise<void> {
   const filePath = eventFilePath(rootPath, channelId, monthKey(date), userId);
-  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await ensureDir(path.dirname(filePath));
   const line = serializeEvent(event) + "\n";
   // 1 イベント = 1 行を単一 write で追記し fsync する。
   const fh = await fsp.open(filePath, "a");
@@ -241,15 +262,30 @@ export async function readChannelEvents(rootPath: string, channelId: Ulid): Prom
   return events;
 }
 
-/** テスト・初回起動用: 一時ディレクトリ配下に chat-root の骨組みを作る。 */
+/**
+ * chat-root の骨組み(共有スキャフォールド)を必要時のみ作成する。
+ *
+ * **1 人目のユーザー**(workspace.json が未存在)のときだけ、トップレベルディレクトリと
+ * workspace.json を作成する。**2 人目以降**(既に初期化済み)のときは何もしない。
+ * これにより、初期化済み共有フォルダを開いた 2 人目以降が共有フォルダの作成を試みて
+ * 失敗する(作成権限が無い/ネットワークFSでエラーになる)問題を防ぐ。
+ * 各ユーザーは自分のファイル(users/cursors/events)だけを書けばよく、その親ディレクトリは
+ * 書き込み時に ensureDir で必要に応じて作られる(DESIGN.md 設計原則2)。
+ */
 export async function initWorkspace(rootPath: string, name: string): Promise<void> {
-  await fsp.mkdir(path.join(rootPath, "users"), { recursive: true });
-  await fsp.mkdir(path.join(rootPath, "cursors"), { recursive: true });
-  await fsp.mkdir(path.join(rootPath, "channels"), { recursive: true });
-  await fsp.mkdir(path.join(rootPath, "attachments"), { recursive: true });
-  if (!(await readWorkspace(rootPath))) {
-    await writeWorkspace(rootPath, { schemaVersion: SCHEMA_VERSION, name });
+  if (await readWorkspace(rootPath)) {
+    return; // 既に初期化済み。2 人目以降は共有スキャフォールドを作らない。
   }
+  await ensureDir(path.join(rootPath, "users"));
+  await ensureDir(path.join(rootPath, "cursors"));
+  await ensureDir(path.join(rootPath, "channels"));
+  await ensureDir(path.join(rootPath, "attachments"));
+  await writeWorkspace(rootPath, { schemaVersion: SCHEMA_VERSION, name });
+}
+
+/** 共有フォルダが初期化済み(workspace.json が存在)かを返す。 */
+export async function isWorkspaceInitialized(rootPath: string): Promise<boolean> {
+  return (await readWorkspace(rootPath)) !== undefined;
 }
 
 /** テスト補助: OS の一時ディレクトリに一意な chat-root を作って返す。 */
@@ -298,7 +334,7 @@ export async function writeAttachment(
 ): Promise<AttachmentMeta> {
   const month = monthKey(date);
   const dir = attachmentDir(rootPath, channelId, month, ulid);
-  await fsp.mkdir(dir, { recursive: true });
+  await ensureDir(dir);
 
   const tmpBlob = path.join(dir, `blob.tmp.${randomToken()}`);
   const fh = await fsp.open(tmpBlob, "w");
