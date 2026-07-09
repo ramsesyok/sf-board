@@ -32,10 +32,12 @@ const SANITIZE_OPTIONS: Config = {
   ALLOW_DATA_ATTR: false,
 };
 
-// 絵文字ピッカーの定義済みセット(§6.1: 20 個程度)。外部ライブラリは使わない。
+// 絵文字ピッカーの定義済みセット(§6.1)。外部ライブラリは使わない。
+// ビジネス用途向け: 肯定・否定/反対・確認/注意をバランスよく含める(ファンシー系は除外)。
 const EMOJI_SET = [
-  "👍", "✅", "🙏", "😄", "🎉", "👀", "❤️", "🔥", "💯", "👏",
-  "🤔", "👌", "🙌", "⭐", "😅", "😢", "😮", "🚀", "😀", "🎈",
+  "👍", "👎", "✅", "❌", "🙏", "🙌", "👏", "👌",
+  "🎉", "🔥", "💯", "👀", "🤔", "😮", "⚠️", "🙅",
+  "🚀", "⭐",
 ];
 
 // ---- 状態 ----
@@ -203,6 +205,7 @@ function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
   const avatar = document.createElement("div");
   avatar.className = "avatar";
   avatar.textContent = initialsOf(displayName);
+  paintAvatar(avatar, selfUserId);
   row.appendChild(avatar);
 
   const main = document.createElement("div");
@@ -263,6 +266,7 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
   const avatar = document.createElement("div");
   avatar.className = "avatar";
   avatar.textContent = initialsOf(displayName);
+  paintAvatar(avatar, msg.author);
   row.appendChild(avatar);
 
   const main = document.createElement("div");
@@ -584,6 +588,16 @@ function emptyPlaceholder(): HTMLElement {
 function initialsOf(name: string): string {
   const trimmed = name.trim();
   return trimmed ? [...trimmed][0].toUpperCase() : "?";
+}
+
+// アバターに、userId から決定的に導出したパステル背景色を適用する。
+// 同一ユーザーは常に同じ色になり、ユーザー間の判別がつきやすくなる(カスタマイズ不要)。
+function paintAvatar(avatar: HTMLElement, userId: string): void {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  avatar.style.backgroundColor = `hsl(${hue}, 70%, 82%)`; // パステル
+  avatar.style.color = `hsl(${hue}, 50%, 28%)`; // 同系の濃色で可読性を確保
 }
 function formatTime(iso: string): string {
   const d = new Date(iso);
