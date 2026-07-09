@@ -16,11 +16,17 @@ import {
   RENAME_CHANNEL_COMMAND,
   REFRESH_COMMAND,
   SETUP_COMMAND,
+  SHOW_DIAGNOSTICS_COMMAND,
   CHANNELS_VIEW_ID,
 } from "./ui/commandIds";
 import { hl } from "./host/hostL10n";
+import { OutputChannelDiagnosticsLogger } from "./host/diagnosticsLogger";
+import type { DiagnosticsLogger } from "./core/diagnostics";
 
 const CONFIG_SECTION = "airgapChat";
+
+/** 同期診断ロガー(activate で 1 度だけ生成。無効時は書き込まない)。 */
+let diagnosticsLogger: DiagnosticsLogger | undefined;
 
 interface Runtime {
   model: ChatModel;
@@ -33,6 +39,14 @@ interface Runtime {
 let runtime: Runtime | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // 同期診断ログの出力チャネル(LogOutputChannel)。診断有効時のみ書き込む。
+  const logChannel = vscode.window.createOutputChannel("Airgap Chat", { log: true });
+  context.subscriptions.push(logChannel);
+  diagnosticsLogger = new OutputChannelDiagnosticsLogger(
+    logChannel,
+    () => vscode.workspace.getConfiguration(CONFIG_SECTION).get<boolean>("diagnostics.enabled") ?? false,
+  );
+
   // コマンドは常時登録する(setup は rootPath 未設定でも使えるように)。
   context.subscriptions.push(
     vscode.commands.registerCommand(SETUP_COMMAND, () => runSetup()),
@@ -45,6 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void runtime?.sync.checkNow();
       runtime?.tree.refresh();
     }),
+    vscode.commands.registerCommand(SHOW_DIAGNOSTICS_COMMAND, () => logChannel.show()),
   );
 
   // パネル復元(VSCode 再起動後にタブを再初期化)。DESIGN_EXTENSION.md §4。
@@ -99,6 +114,7 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
   const displayName = (config.get<string>("displayName") ?? "").trim();
 
   const model = new ChatModel(rootPath, selfUserId);
+  if (diagnosticsLogger) model.setLogger(diagnosticsLogger);
 
   // ローカルキャッシュ(未読・送信キュー)を globalStorage に置く(DESIGN.md §6)。
   const cache = new LocalCache(path.join(context.globalStorageUri.fsPath, "localCache.json"));
@@ -130,6 +146,7 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
     isActive: () => vscode.window.state.focused,
     onError: (e) => console.error("[airgapChat] sync error", e),
     onModeChange: (mode) => console.info(`[airgapChat] sync mode: ${mode}`),
+    logger: diagnosticsLogger,
   });
 
   const disposables: vscode.Disposable[] = [];

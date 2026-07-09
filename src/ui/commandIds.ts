@@ -4,5 +4,6 @@ export const CREATE_CHANNEL_COMMAND = "airgapChat.createChannel";
 export const RENAME_CHANNEL_COMMAND = "airgapChat.renameChannel";
 export const REFRESH_COMMAND = "airgapChat.refresh";
 export const SETUP_COMMAND = "airgapChat.setup";
+export const SHOW_DIAGNOSTICS_COMMAND = "airgapChat.showDiagnostics";
 
 export const CHANNELS_VIEW_ID = "airgapChatChannels";

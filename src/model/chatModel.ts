@@ -15,6 +15,7 @@ import { monotonicUlidFactory, type Ulid } from "../core/ulid";
 import type { ChannelMeta, UserProfile } from "../shared/types";
 import type { StoredAttachment } from "../core/store";
 import type { LocalCache } from "../core/localCache";
+import { noopDiagnosticsLogger, type DiagnosticsLogger } from "../core/diagnostics";
 
 export interface ChannelSummary {
   id: Ulid;
@@ -55,6 +56,7 @@ export class ChatModel {
   private users: Record<string, UserProfile> = {};
   private knownChannelIds = new Set<Ulid>();
   private cache: LocalCache | undefined;
+  private logger: DiagnosticsLogger = noopDiagnosticsLogger;
 
   constructor(
     private readonly rootPath: string,
@@ -64,6 +66,11 @@ export class ChatModel {
   /** ローカルキャッシュ(未読・送信キュー)を設定する。 */
   setLocalCache(cache: LocalCache): void {
     this.cache = cache;
+  }
+
+  /** 同期診断ロガーを設定する(無効時は noop)。 */
+  setLogger(logger: DiagnosticsLogger): void {
+    this.logger = logger;
   }
 
   // ---- イベント購読 ----
@@ -293,6 +300,12 @@ export class ChatModel {
     } catch (err) {
       if (this.cache) {
         await this.cache.enqueue({ requestId: event.id, channelId, event });
+        this.logger.log("warn", "send.queued", {
+          channelId,
+          eventId: event.id,
+          type: event.type,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return "queued";
       }
       throw err;
@@ -308,7 +321,9 @@ export class ChatModel {
   async flushQueue(): Promise<void> {
     if (!this.cache) return;
     const queue = [...this.cache.getQueue()];
+    if (queue.length === 0) return;
     const touched = new Set<Ulid>();
+    let sent = 0;
     for (const item of queue) {
       try {
         await store.appendEvent(this.rootPath, item.channelId, this.selfUserId, item.event);
@@ -319,10 +334,15 @@ export class ChatModel {
         });
         await this.cache.removeFromQueue(item.requestId);
         touched.add(item.channelId);
+        sent++;
       } catch {
         break; // まだオフライン。順序維持のため中断。
       }
     }
+    this.logger.log(sent > 0 ? "info" : "debug", "queue.flush", {
+      sent,
+      remaining: this.cache.getQueue().length,
+    });
     for (const id of touched) {
       if (this.loaded.has(id)) await this.refreshChannel(id, true);
     }
@@ -366,6 +386,12 @@ export class ChatModel {
     if (force || !prev || prev.signature !== next.signature) {
       // ユーザープロフィールも取り込み直す(表示名の更新反映)。
       this.users = await store.readAllUserProfiles(this.rootPath);
+      this.logger.log("info", "channel.updated", {
+        channelId,
+        events: events.length,
+        latest: next.latestEventId,
+        force,
+      });
       this.emitter.emit(EVT_CHANNEL_UPDATED, channelId);
     }
   }
