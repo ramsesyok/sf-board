@@ -6,6 +6,7 @@
   "command.renameChannel": "チャンネル名を変更",
   "command.refresh": "更新",
   "command.setup": "初期設定",
+  "command.showDiagnostics": "同期診断ログを表示",
   "config.rootPath": "ストレージ兼トランスポートとして使う共有フォルダ(chat-root)のパス。必須。",
   "config.userId": "ユーザーID。空欄の場合は OS のユーザー名を使用します。",
   "config.displayName": "他のユーザーに表示される表示名。",
@@ -13,5 +14,6 @@
   "config.poll.fallbackSec": "フォールバックポーリングの基本周期(秒)。Phase 4 で使用。",
   "config.watch.enabled": "fs.watch 監視層の有効化。Phase 4 で使用。",
   "config.attachmentMaxBytes": "添付ファイルの上限サイズ(バイト)。",
-  "config.imageInlinePreview": "画像添付のインラインプレビュー表示。"
+  "config.imageInlinePreview": "画像添付のインラインプレビュー表示。",
+  "config.diagnostics.enabled": "同期・更新検知の診断ログを「Airgap Chat」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。"
 }

@@ -71,6 +71,11 @@
         "command": "airgapChat.setup",
         "title": "%command.setup%",
         "category": "Airgap Chat"
+      },
+      {
+        "command": "airgapChat.showDiagnostics",
+        "title": "%command.showDiagnostics%",
+        "category": "Airgap Chat"
       }
     ],
     "menus": {
@@ -146,6 +151,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.imageInlinePreview%"
+        },
+        "airgapChat.diagnostics.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%config.diagnostics.enabled%"
         }
       }
     }

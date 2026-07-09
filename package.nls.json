@@ -6,6 +6,7 @@
   "command.renameChannel": "Rename Channel",
   "command.refresh": "Refresh",
   "command.setup": "Setup",
+  "command.showDiagnostics": "Show Sync Diagnostics Log",
   "config.rootPath": "Path to the shared folder (chat-root) used as storage and transport. Required.",
   "config.userId": "Your user ID. Uses the OS user name when empty.",
   "config.displayName": "Your display name shown to others.",
@@ -13,5 +14,6 @@
   "config.poll.fallbackSec": "Fallback polling base interval in seconds (used in Phase 4).",
   "config.watch.enabled": "Enable the fs.watch layer (used in Phase 4).",
   "config.attachmentMaxBytes": "Maximum attachment size in bytes.",
-  "config.imageInlinePreview": "Show inline previews for image attachments."
+  "config.imageInlinePreview": "Show inline previews for image attachments.",
+  "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"Airgap Chat\" output channel (metadata only; no message content). Disabled by default."
 }

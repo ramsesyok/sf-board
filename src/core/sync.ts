@@ -11,6 +11,7 @@
 import * as fs from "fs";
 import * as fsp from "fs/promises";
 import * as path from "path";
+import { noopDiagnosticsLogger, type DiagnosticsLogger } from "./diagnostics";
 
 export interface CursorStat {
   mtimeMs: number;
@@ -91,6 +92,8 @@ export interface SyncEngineOptions {
   onError?: (err: unknown) => void;
   /** モード切替の通知(ログ/デバッグ用・任意)。 */
   onModeChange?: (mode: SyncMode) => void;
+  /** 同期診断ロガー(任意。無効時は noop)。 */
+  logger?: DiagnosticsLogger;
 }
 
 /**
@@ -112,7 +115,11 @@ export class SyncEngine {
   private watchNotifiedThisCycle = false;
   private consecutiveMissed = 0;
 
-  constructor(private readonly options: SyncEngineOptions) {}
+  private readonly logger: DiagnosticsLogger;
+
+  constructor(private readonly options: SyncEngineOptions) {
+    this.logger = options.logger ?? noopDiagnosticsLogger;
+  }
 
   getMode(): SyncMode {
     return this.mode;
@@ -122,11 +129,18 @@ export class SyncEngine {
     if (this.running) return;
     this.running = true;
     this.prev = await snapshotCursors(this.options.rootPath);
+    this.logger.log("info", "sync.start", {
+      watchEnabled: this.options.watchEnabled,
+      reconcileMs: this.options.reconcileMs,
+      fallbackMs: this.options.fallbackMs,
+      cursors: Object.keys(this.prev).length,
+    });
     if (this.options.watchEnabled) {
       this.mode = "watch";
       this.startWatch();
     } else {
       this.mode = "fallback";
+      this.logger.log("info", "sync.mode", { mode: "fallback", reason: "watchDisabled" });
       this.startFallback();
     }
     this.scheduleReconcile();
@@ -143,7 +157,7 @@ export class SyncEngine {
 
   /** 即時に 1 回照合する(手動リフレッシュ)。 */
   async checkNow(): Promise<boolean> {
-    return this.doCheck();
+    return this.doCheck("manual");
   }
 
   // ---- 監視層(§5.1・§5.2) ----
@@ -153,6 +167,7 @@ export class SyncEngine {
       this.watcher = fs.watch(dir, { recursive: false }, () => this.onWatchEvent());
       this.watcher.on("error", (err) => this.handleWatchError(err));
       this.options.onModeChange?.("watch");
+      this.logger.log("info", "watch.start", { dir });
     } catch (err) {
       this.handleWatchError(err);
     }
@@ -171,21 +186,26 @@ export class SyncEngine {
 
   private onWatchEvent(): void {
     this.watchNotifiedThisCycle = true;
+    this.logger.log("debug", "watch.notify");
     // 300ms デバウンス(§5.2)。通知内容は使わず、後で cursors を読み直す。
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
-      void this.doCheck();
+      void this.doCheck("watch");
     }, 300);
   }
 
   private handleWatchError(err: unknown): void {
     this.options.onError?.(err);
+    this.logger.log("warn", "watch.error", { error: errString(err) });
     this.closeWatch();
     if (!this.running || this.mode !== "watch") return;
     // ハンドルを張り直す(§5.4)。失敗が続けば照合層のヘルスチェックでフォールバックへ。
     if (this.watchRetryTimer) clearTimeout(this.watchRetryTimer);
     this.watchRetryTimer = setTimeout(() => {
-      if (this.running && this.mode === "watch") this.startWatch();
+      if (this.running && this.mode === "watch") {
+        this.logger.log("info", "watch.retry");
+        this.startWatch();
+      }
     }, 5000);
   }
 
@@ -201,11 +221,18 @@ export class SyncEngine {
 
   private async reconcileTick(): Promise<void> {
     const notified = this.watchNotifiedThisCycle;
-    const foundChange = await this.doCheck();
+    const foundChange = await this.doCheck("reconcile");
     if (this.mode === "watch") {
       const health = updateHealth(this.consecutiveMissed, foundChange, notified);
+      this.logger.log("debug", "reconcile.tick", {
+        foundChange,
+        watchNotified: notified,
+        missed: health.consecutiveMissed,
+      });
       this.consecutiveMissed = health.consecutiveMissed;
       if (health.shouldFallback) this.switchToFallback();
+    } else {
+      this.logger.log("debug", "reconcile.tick", { foundChange, mode: this.mode });
     }
     this.watchNotifiedThisCycle = false; // 周期リセット。
   }
@@ -219,6 +246,10 @@ export class SyncEngine {
       this.watchRetryTimer = undefined;
     }
     this.options.onModeChange?.("fallback");
+    this.logger.log("warn", "sync.fallback", {
+      reason: "watchUnreliable",
+      consecutiveMissed: this.consecutiveMissed,
+    });
     this.startFallback();
   }
 
@@ -235,12 +266,12 @@ export class SyncEngine {
     const jitter = base * 0.3 * (Math.random() * 2 - 1); // ±30% ジッタ。
     const delay = Math.max(1000, base + jitter);
     this.fallbackTimer = setTimeout(() => {
-      void this.doCheck().finally(() => this.scheduleFallback());
+      void this.doCheck("fallback").finally(() => this.scheduleFallback());
     }, delay);
   }
 
   // ---- 共通: 照合実行(直列化) ----
-  private async doCheck(): Promise<boolean> {
+  private async doCheck(source: string): Promise<boolean> {
     if (this.checking) {
       this.rerunRequested = true;
       return false;
@@ -253,18 +284,28 @@ export class SyncEngine {
       this.prev = next;
       if (changed.length > 0) {
         changedAny = true;
+        this.logger.log("info", "change.detected", {
+          source,
+          count: changed.length,
+          cursors: changed.join(","),
+        });
         await this.options.onChange(changed);
       }
     } catch (err) {
       this.options.onError?.(err);
+      this.logger.log("error", "check.error", { source, error: errString(err) });
     } finally {
       this.checking = false;
     }
     if (this.rerunRequested) {
       this.rerunRequested = false;
-      const again = await this.doCheck();
+      const again = await this.doCheck(source);
       changedAny = changedAny || again;
     }
     return changedAny;
   }
+}
+
+function errString(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

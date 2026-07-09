@@ -181,6 +181,7 @@ type WebviewMessage =
 | `airgapChat.renameChannel` | チャンネルリネーム |
 | `airgapChat.refresh` | 手動同期(照合ポーリングを即時実行) |
 | `airgapChat.setup` | 初期設定ウィザード(rootPath/userId/displayName を順に入力) |
+| `airgapChat.showDiagnostics` | 同期診断ログの出力チャネルを表示(§8.1) |
 
 ### 設定(DESIGN.md §7 の表に追加)
 
@@ -188,8 +189,18 @@ type WebviewMessage =
 |---|---|---|
 | `airgapChat.attachmentMaxBytes` | 添付サイズ上限 | 10485760 |
 | `airgapChat.imageInlinePreview` | 画像のインライン表示 | true |
+| `airgapChat.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
 
 設定キーの接頭辞は `airgapChat.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
+
+### 8.1 同期診断ログ(任意・既定で無効)
+
+同期(fs.watch 監視 / 照合 / フォールバック、DESIGN.md §5)の挙動を現場で観測するための任意ログ。SMB/NFS 実環境での通知到達・モード切替・取りこぼしの調査に用いる(§12 手動テストの補助)。
+
+- **有効化**: `airgapChat.diagnostics.enabled`(既定 `false`)。**有効時のみ**出力する。
+- **出力先**: VSCode の `LogOutputChannel`「Airgap Chat」。`window.createOutputChannel(name, { log:true })` で生成し、VSCode が拡張のログディレクトリへ自動保存する。外部送信・テレメトリは行わない(DESIGN.md 技術的制約の外部接続ゼロを厳守)。共有フォルダには一切書き込まない。
+- **記録内容(メタデータのみ)**: 同期イベント名 + メタデータ(`change.detected`(source/件数/カーソル名)、`reconcile.tick`(foundChange/watchNotified/missed)、`sync.fallback`、`watch.notify` / `watch.error` / `watch.retry`、`channel.updated`(channelId/イベント数/最新ULID)、`queue.flush`、`send.queued` 等)。**メッセージ本文・添付内容などの機密情報は記録しない**。
+- **実装**: core 層は vscode 非依存の `DiagnosticsLogger` インターフェース(`core/diagnostics.ts`)で抽象化し、SyncEngine / ChatModel を計装する。Host が `LogOutputChannel` 実装(`host/diagnosticsLogger.ts`)を注入する。無効時は no-op ロガーを用い、`isEnabled()` 判定で出力を抑止する。`debug` レベルの高頻度イベント(`watch.notify` / `reconcile.tick` 等)は出力パネルのログレベルを上げたときのみ表示される。
 
 ### キーバインド
 
