@@ -95,7 +95,7 @@ export class ChatModel {
 
   /** users/ を読み込み、workspace が無ければ骨組みを作る。self プロフィールを書き込む。 */
   async init(displayName: string): Promise<void> {
-    await store.initWorkspace(this.rootPath, "airgap-chat");
+    await store.initWorkspace(this.rootPath, "sf-board");
     await store.writeUserProfile(this.rootPath, {
       userId: this.selfUserId,
       displayName: displayName || this.selfUserId,

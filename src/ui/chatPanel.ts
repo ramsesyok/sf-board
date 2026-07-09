@@ -14,7 +14,7 @@ import { hl } from "../host/hostL10n";
 import { mimeFromFilename, isInlineImageMime } from "../shared/mime";
 import { verifyAttachment } from "../core/store";
 
-export const CHANNEL_VIEW_TYPE = "airgapChat.channel";
+export const CHANNEL_VIEW_TYPE = "sfBoard.channel";
 
 export interface ChatPanelDeps {
   attachmentMaxBytes: number;

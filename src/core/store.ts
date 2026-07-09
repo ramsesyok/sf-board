@@ -253,7 +253,7 @@ export async function initWorkspace(rootPath: string, name: string): Promise<voi
 }
 
 /** テスト補助: OS の一時ディレクトリに一意な chat-root を作って返す。 */
-export async function makeTempRoot(prefix = "airgap-chat-"): Promise<string> {
+export async function makeTempRoot(prefix = "sf-board-"): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
