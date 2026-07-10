@@ -49,6 +49,9 @@ let users: Record<string, UserProfile> = {};
 let attachments: Record<string, AttachmentInfo> = {};
 let strings: Record<string, string> = {};
 let channelId = "";
+let channelName = "";
+let threadMode = false; // config.threadDisplay === "thread"
+let openThreadId: string | undefined; // スレッドペインで開いている親メッセージ ID
 let currentThreads: RenderedThread[] = [];
 const expandedThreads = new Set<string>(); // 展開中の親メッセージ ID
 const replyDrafts = new Map<string, string>(); // 親 ID → 返信ドラフト本文
@@ -81,6 +84,13 @@ const pendingEl = document.getElementById("pending") as HTMLDivElement;
 const searchEl = document.getElementById("search") as HTMLDivElement;
 const searchInputEl = document.getElementById("search-input") as HTMLInputElement;
 const searchCountEl = document.getElementById("search-count") as HTMLSpanElement;
+const threadColEl = document.getElementById("thread-col") as HTMLDivElement;
+const threadTitleEl = document.getElementById("thread-title") as HTMLSpanElement;
+const threadSubEl = document.getElementById("thread-sub") as HTMLSpanElement;
+const threadBodyEl = document.getElementById("thread-body") as HTMLDivElement;
+const threadInputEl = document.getElementById("thread-input") as HTMLTextAreaElement;
+const threadSendEl = document.getElementById("thread-send") as HTMLButtonElement;
+const threadCloseEl = document.getElementById("thread-close") as HTMLButtonElement;
 
 // ULID キーの差分描画用キャッシュ(メッセージ要素のみ)。
 const nodeCache = new Map<string, { el: HTMLElement; sig: string }>();
@@ -95,6 +105,8 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       attachments = msg.attachments;
       strings = msg.l10n;
       channelId = msg.channelId;
+      channelName = msg.channelName;
+      threadMode = msg.config.threadDisplay === "thread";
       vscode.setState({ channelId });
       applyStrings();
       currentThreads = msg.messages;
@@ -103,6 +115,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     case "channelUpdated":
       users = msg.users;
       attachments = msg.attachments;
+      channelName = msg.channelName;
       currentThreads = msg.messages;
       claimPending();
       render();
@@ -129,6 +142,9 @@ function applyStrings(): void {
   sendEl.textContent = tr("send");
   attachEl.title = tr("attach");
   searchInputEl.placeholder = tr("searchPlaceholder");
+  threadInputEl.placeholder = tr("replyPlaceholder");
+  threadSendEl.textContent = tr("send");
+  threadCloseEl.title = tr("close");
 }
 
 // ---- 描画(§6.3 差分描画: メッセージ要素はキャッシュ再利用) ----
@@ -146,20 +162,26 @@ function render(): void {
 
   for (const thread of currentThreads) {
     frag.appendChild(getMessageEl(thread.parent, false, seen));
-
     const replyCount = thread.replies.length;
-    const expanded = expandedThreads.has(thread.parent.id);
-    if (replyCount > 0) {
-      frag.appendChild(threadToggle(thread.parent.id, replyCount, expanded));
-    }
-    if (expanded) {
-      for (const reply of thread.replies) {
-        frag.appendChild(getMessageEl(reply, true, seen));
+
+    if (threadMode) {
+      // スレッド形式: 返信はタイムラインに出さず、サマリのみ表示(クリックでペイン)。
+      if (replyCount > 0) frag.appendChild(replySummary(thread));
+    } else {
+      // インライン形式: 従来どおり親の下に折りたたみ展開。
+      const expanded = expandedThreads.has(thread.parent.id);
+      if (replyCount > 0) {
+        frag.appendChild(threadToggle(thread.parent.id, replyCount, expanded));
       }
-      for (const p of pendingMessages.filter((x) => x.threadId === thread.parent.id)) {
-        frag.appendChild(createPendingEl(p, true));
+      if (expanded) {
+        for (const reply of thread.replies) {
+          frag.appendChild(getMessageEl(reply, true, seen));
+        }
+        for (const p of pendingMessages.filter((x) => x.threadId === thread.parent.id)) {
+          frag.appendChild(createPendingEl(p, true));
+        }
+        frag.appendChild(replyComposer(thread.parent.id));
       }
-      frag.appendChild(replyComposer(thread.parent.id));
     }
   }
 
@@ -174,7 +196,105 @@ function render(): void {
   messagesEl.replaceChildren(frag);
   applySearchHighlights();
   if (atBottom) scrollToBottom();
+
+  if (threadMode) renderThreadPanel();
 }
+
+// ---- スレッドペイン(スレッド形式) ----
+// タイムライン上の返信サマリ(クリックでペインを開く)。
+function replySummary(thread: RenderedThread): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "reply-summary";
+  el.addEventListener("click", () => openThread(thread.parent.id));
+
+  const avatarsWrap = document.createElement("span");
+  avatarsWrap.className = "avatars";
+  const seenAuthors = new Set<string>();
+  for (const r of thread.replies) {
+    if (seenAuthors.has(r.author)) continue;
+    seenAuthors.add(r.author);
+    if (seenAuthors.size > 3) break;
+    const av = document.createElement("span");
+    av.className = "avatar";
+    const dn = users[r.author]?.displayName || r.author;
+    av.textContent = initialsOf(dn);
+    paintAvatar(av, r.author);
+    avatarsWrap.appendChild(av);
+  }
+  el.appendChild(avatarsWrap);
+
+  el.appendChild(span("count", `${thread.replies.length} ${tr("replies")}`));
+
+  const last = thread.replies[thread.replies.length - 1];
+  if (last) el.appendChild(span("last", `· ${fmt("lastReply", formatTime(last.ts))}`));
+  return el;
+}
+
+function openThread(parentId: string): void {
+  openThreadId = parentId;
+  renderThreadPanel();
+  threadInputEl.focus();
+}
+function closeThread(): void {
+  openThreadId = undefined;
+  threadColEl.classList.add("hidden");
+}
+
+function renderThreadPanel(): void {
+  if (!threadMode || !openThreadId) {
+    threadColEl.classList.add("hidden");
+    return;
+  }
+  const thread = currentThreads.find((t) => t.parent.id === openThreadId);
+  if (!thread) {
+    closeThread();
+    return;
+  }
+  threadColEl.classList.remove("hidden");
+  threadTitleEl.textContent = tr("thread");
+  threadSubEl.textContent = `# ${channelName}`;
+
+  const atBottom = threadBodyEl.scrollHeight - threadBodyEl.scrollTop - threadBodyEl.clientHeight < 40;
+  const frag = document.createDocumentFragment();
+  frag.appendChild(createMessageEl(thread.parent, false));
+
+  const divider = document.createElement("div");
+  divider.className = "thread-divider";
+  divider.textContent = `${thread.replies.length} ${tr("replies")}`;
+  frag.appendChild(divider);
+
+  for (const reply of thread.replies) frag.appendChild(createMessageEl(reply, true));
+  for (const p of pendingMessages.filter((x) => x.threadId === openThreadId)) {
+    frag.appendChild(createPendingEl(p, true));
+  }
+  threadBodyEl.replaceChildren(frag);
+  threadInputEl.value = replyDrafts.get(openThreadId) ?? "";
+  if (atBottom) threadBodyEl.scrollTop = threadBodyEl.scrollHeight;
+}
+
+function submitThreadReply(): void {
+  if (!openThreadId) return;
+  const body = threadInputEl.value.trim();
+  if (!body) return;
+  const requestId = newRequestId();
+  postMsg({ kind: "sendMessage", requestId, body, threadId: openThreadId });
+  pendingMessages.push({ requestId, body, threadId: openThreadId, ts: new Date().toISOString(), state: "pending" });
+  replyDrafts.delete(openThreadId);
+  threadInputEl.value = "";
+  renderThreadPanel();
+}
+
+threadSendEl.addEventListener("click", submitThreadReply);
+threadCloseEl.addEventListener("click", closeThread);
+threadInputEl.addEventListener("input", () => {
+  if (openThreadId) replyDrafts.set(openThreadId, threadInputEl.value);
+});
+threadInputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    submitThreadReply();
+  }
+});
 
 // ---- 楽観的 UI ----
 function claimPending(): void {
@@ -374,11 +494,15 @@ function renderActions(msg: MessageState, isReply: boolean): HTMLElement {
     const reply = document.createElement("button");
     reply.className = "action-btn";
     reply.textContent = "↩";
-    reply.title = tr("reply");
+    reply.title = threadMode ? tr("replyInThread") : tr("reply");
     reply.addEventListener("click", () => {
-      expandedThreads.add(msg.id);
-      render();
-      focusReplyComposer(msg.id);
+      if (threadMode) {
+        openThread(msg.id);
+      } else {
+        expandedThreads.add(msg.id);
+        render();
+        focusReplyComposer(msg.id);
+      }
     });
     actions.appendChild(reply);
   }

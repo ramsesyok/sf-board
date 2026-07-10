@@ -152,6 +152,13 @@
           "default": true,
           "markdownDescription": "%config.imageInlinePreview%"
         },
+        "sfBoard.threadDisplay": {
+          "type": "string",
+          "enum": ["inline", "thread"],
+          "enumDescriptions": ["%config.threadDisplay.inline%", "%config.threadDisplay.thread%"],
+          "default": "inline",
+          "markdownDescription": "%config.threadDisplay%"
+        },
         "sfBoard.diagnostics.enabled": {
           "type": "boolean",
           "default": false,

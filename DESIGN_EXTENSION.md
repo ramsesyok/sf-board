@@ -90,7 +90,7 @@ type HostMessage =
       attachments: Record<string, AttachmentInfo>;  // ulid → 添付情報(Phase 3 追補)
       selfUserId: string;
       l10n: Record<string, string>;      // Webview用文言辞書(§9)
-      config: { attachmentMaxBytes: number } }
+      config: { attachmentMaxBytes: number; threadDisplay: "inline" | "thread" } }
   | { kind: "channelUpdated";            // 差分ではなく最新状態を再送(冪等・単純)
       messages: RenderedThread[]; channelName: string;
       users: Record<string, UserProfile>;
@@ -134,7 +134,9 @@ type WebviewMessage =
 
 - メッセージ要素: アバター(イニシャル自動生成)、表示名、時刻(ローカルTZ)、本文HTML、リアクションチップ列(クリックでトグル)、`+絵文字` ボタン、`返信` ボタン。
 - 絵文字ピッカーは**定義済みセット(20個程度: 👍 ✅ 🙏 😄 🎉 👀 ❤️ 等)**のシンプルなポップオーバー。外部絵文字ライブラリは使わない。
-- スレッド返信は親の直下にインライン展開(別カラムは作らない)。返信入力欄は展開時に親の下に表示。
+- スレッド返信の表示方式は設定 `sfBoard.threadDisplay` で切り替える(§6.6)。
+  - `inline`(既定): スレッド返信は親の直下にインライン展開(別カラムは作らない)。返信入力欄は展開時に親の下に表示。
+  - `thread`: タイムラインには「返信n件・最終返信時刻」のサマリのみ表示し、返信は右側のスレッドペインで開く。
 - 新規メッセージ到着時、ユーザーが最下部にいる場合のみ自動スクロール。上方閲覧中はスクロール位置を保持し「新着 ↓」バッジを表示。
 
 ### 6.2 チャンネル内検索
@@ -163,6 +165,19 @@ type WebviewMessage =
 - 画像(png/jpg/gif/webp/svg※svgはサニタイズ困難のためサムネイル化せずファイル扱い)はメッセージ内にインラインサムネイル表示(`attachment://` → `asWebviewUri` 解決)。**サムネイルのクリックでライトボックス(全画面オーバーレイの拡大表示)を開き**、そこから「ダウンロード」で `openAttachment` を実行する(背景クリック / Esc / 「閉じる」で閉じる)。画像以外はファイル名+サイズのカードで表示し、クリックで直接 `openAttachment` → Host が保存ダイアログを出す(保存時に SHA-256 検証を実施)。
 - Webview へのドラッグ&ドロップ対応は本リリースでは対象外(将来拡張)。
 
+### 6.6 返信の表示方式(inline / thread)
+
+設定 `sfBoard.threadDisplay` により、返信の表示を切り替える(値は Host が `init` の `config.threadDisplay` で Webview へ渡す。§5)。
+
+- `inline`(既定): 従来どおり。親メッセージの直下に「▸ 返信n件」の折りたたみを出し、展開すると返信+返信入力欄がインライン表示される。
+- `thread`(Slack 風): Webview を **2 カラム**(左=タイムライン / 右=スレッドペイン)にする。
+  - タイムラインには返信を出さず、親の下に「返信サマリ」(返信者アバター+件数+最終返信時刻)を表示。クリック、またはホバーツールバーの返信ボタンでスレッドペインを開く。
+  - 右のスレッドペインは、ヘッダ(「スレッド」+ `#チャンネル名` + 閉じる)、親メッセージ、`n件の返信` の区切り、返信一覧、返信入力欄(`Ctrl+Enter` 送信)で構成する。
+  - スレッドペインはメインの WebView 内の右カラムであり、別の VSCode エディタタブは開かない。
+  - 楽観的 UI(pending)・リアクション・添付表示はペイン内でも同様に機能する。
+  - 「チャンネルにも投稿(Also send to channel)」は本リリースでは対象外(将来拡張)。
+  - 表示方式は `init` 時点の設定で決まる。設定変更時は他設定と同様に再初期化(パネル再作成)で反映する。
+
 ## 7. TreeView(サイドバー)
 
 - ViewContainer `sfBoard` を activitybar に追加。アイコンは同梱 SVG。
@@ -189,6 +204,7 @@ type WebviewMessage =
 |---|---|---|
 | `sfBoard.attachmentMaxBytes` | 添付サイズ上限 | 10485760 |
 | `sfBoard.imageInlinePreview` | 画像のインライン表示 | true |
+| `sfBoard.threadDisplay` | 返信の表示方式 `inline` / `thread`(§6.6) | inline |
 | `sfBoard.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
 
 設定キーの接頭辞は `sfBoard.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
