@@ -344,7 +344,7 @@ body {
 .reaction.mine { border-color: var(--vscode-focusBorder); background: var(--vscode-editor-selectionBackground); }
 /* ホバー時にメッセージ右上へ浮かぶ操作ツールバー(絶対配置なのでレイアウトを動かさない)。 */
 .msg-actions {
-  position: absolute; top: -12px; right: 8px; z-index: 5;
+  position: absolute; top: -2px; right: 8px; z-index: 5;
   display: none; gap: 1px; align-items: center;
   background: var(--vscode-editorWidget-background);
   border: 1px solid var(--vscode-panel-border);
