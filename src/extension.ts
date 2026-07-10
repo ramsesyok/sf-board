@@ -134,6 +134,7 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
     return {
       attachmentMaxBytes: c.get<number>("attachmentMaxBytes") ?? 10485760,
       imageInlinePreview: c.get<boolean>("imageInlinePreview") ?? true,
+      threadDisplay: c.get<"inline" | "thread">("threadDisplay") ?? "inline",
     };
   });
 

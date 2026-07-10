@@ -15,5 +15,8 @@
   "config.watch.enabled": "Enable the fs.watch layer (used in Phase 4).",
   "config.attachmentMaxBytes": "Maximum attachment size in bytes.",
   "config.imageInlinePreview": "Show inline previews for image attachments.",
+  "config.threadDisplay": "How thread replies are shown: inline in the timeline, or in a Slack-style thread pane on the right.",
+  "config.threadDisplay.inline": "Show replies inline under the parent message in the timeline.",
+  "config.threadDisplay.thread": "Show a \"N replies\" summary in the timeline and open replies in a thread pane on the right.",
   "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"SF Board\" output channel (metadata only; no message content). Disabled by default."
 }

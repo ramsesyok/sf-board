@@ -4,8 +4,12 @@
 import type { RenderedThread } from "../core/reducer";
 import type { UserProfile } from "./types";
 
+export type ThreadDisplay = "inline" | "thread";
+
 export interface WebviewConfig {
   attachmentMaxBytes: number;
+  /** 返信の表示方式: "inline"(タイムライン内)/ "thread"(右側スレッドペイン)。 */
+  threadDisplay: ThreadDisplay;
 }
 
 // 既存メッセージの添付を描画するための情報(§5 Phase 3 追補)。

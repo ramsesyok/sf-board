@@ -19,6 +19,7 @@ export const CHANNEL_VIEW_TYPE = "sfBoard.channel";
 export interface ChatPanelDeps {
   attachmentMaxBytes: number;
   imageInlinePreview: boolean;
+  threadDisplay: "inline" | "thread";
 }
 
 export class ChatPanel {
@@ -216,7 +217,10 @@ export class ChatPanel {
       attachments: this.buildAttachmentInfos(),
       selfUserId: this.model.getSelfUserId(),
       l10n: getStrings(lang),
-      config: { attachmentMaxBytes: this.deps.attachmentMaxBytes },
+      config: {
+        attachmentMaxBytes: this.deps.attachmentMaxBytes,
+        threadDisplay: this.deps.threadDisplay,
+      },
     });
     if (this.panel.active) void this.model.markRead(this.channelId);
   }
@@ -259,19 +263,37 @@ export class ChatPanel {
 <style>${WEBVIEW_CSS}</style>
 </head>
 <body>
-<div id="search" class="search hidden">
-  <input id="search-input" class="search-input" type="text">
-  <span id="search-count" class="search-count"></span>
-  <button id="search-prev" class="search-btn" title="prev">&#9650;</button>
-  <button id="search-next" class="search-btn" title="next">&#9660;</button>
-  <button id="search-close" class="search-btn" title="close">&#10005;</button>
-</div>
-<div id="messages" class="messages" aria-live="polite"></div>
-<div id="pending" class="pending hidden"></div>
-<div class="composer">
-  <button id="attach" class="composer-attach" title="attach">&#128206;</button>
-  <textarea id="input" rows="1" class="composer-input"></textarea>
-  <button id="send" class="composer-send"></button>
+<div id="layout">
+  <div id="main-col">
+    <div id="search" class="search hidden">
+      <input id="search-input" class="search-input" type="text">
+      <span id="search-count" class="search-count"></span>
+      <button id="search-prev" class="search-btn" title="prev">&#9650;</button>
+      <button id="search-next" class="search-btn" title="next">&#9660;</button>
+      <button id="search-close" class="search-btn" title="close">&#10005;</button>
+    </div>
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <div id="pending" class="pending hidden"></div>
+    <div class="composer">
+      <button id="attach" class="composer-attach" title="attach">&#128206;</button>
+      <textarea id="input" rows="1" class="composer-input"></textarea>
+      <button id="send" class="composer-send"></button>
+    </div>
+  </div>
+  <div id="thread-col" class="hidden">
+    <div id="thread-header">
+      <div class="thread-titles">
+        <span id="thread-title"></span>
+        <span id="thread-sub"></span>
+      </div>
+      <button id="thread-close" class="search-btn" title="close">&#10005;</button>
+    </div>
+    <div id="thread-body" class="messages"></div>
+    <div class="composer">
+      <textarea id="thread-input" rows="1" class="composer-input"></textarea>
+      <button id="thread-send" class="composer-send"></button>
+    </div>
+  </div>
 </div>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
@@ -296,8 +318,41 @@ body {
   font-size: var(--vscode-font-size, 13px);
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
-  display: flex; flex-direction: column; height: 100vh;
+  height: 100vh;
 }
+/* 2 カラムレイアウト(左: タイムライン / 右: スレッドペイン)。 */
+#layout { display: flex; height: 100vh; }
+#main-col { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; height: 100vh; }
+#thread-col {
+  display: flex; flex-direction: column; height: 100vh;
+  flex: 0 0 42%; min-width: 300px; max-width: 560px;
+  border-left: 1px solid var(--vscode-panel-border);
+}
+#thread-col.hidden { display: none; }
+#thread-header {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--vscode-panel-border);
+}
+.thread-titles { display: flex; flex-direction: column; min-width: 0; }
+#thread-title { font-weight: 700; }
+#thread-sub { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
+#thread-body { padding: 8px 12px; }
+.thread-divider {
+  display: flex; align-items: center; gap: 8px; margin: 8px 0;
+  color: var(--vscode-descriptionForeground); font-size: 0.85em; white-space: nowrap;
+}
+.thread-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--vscode-panel-border); }
+/* タイムライン上の返信サマリ(スレッド形式)。 */
+.reply-summary {
+  display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 2px 36px;
+  cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.9em;
+  border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; user-select: none;
+}
+.reply-summary:hover { border-color: var(--vscode-panel-border); background: var(--vscode-list-hoverBackground); }
+.reply-summary .avatars { display: inline-flex; }
+.reply-summary .avatars .avatar { width: 18px; height: 18px; font-size: 9px; margin-right: -4px; border: 1px solid var(--vscode-editor-background); }
+.reply-summary .count { font-weight: 600; }
+.reply-summary .last { color: var(--vscode-descriptionForeground); }
 .messages { flex: 1 1 auto; overflow-y: auto; padding: 12px 16px; }
 .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 24px; }
 .msg { display: flex; gap: 8px; padding: 4px 0; position: relative; }
