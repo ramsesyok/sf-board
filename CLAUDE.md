@@ -25,7 +25,7 @@
 ## 技術的制約
 
 - エアギャップ前提: 実行時のネットワークアクセスは共有フォルダの I/O 以外を一切発生させない。テレメトリ・外部 CDN・fetch・WebSocket 禁止。全依存は VSIX にバンドル
-- Web フォント・外部 URL 参照(CSS の `@import`/`url()` 含む)禁止。フォントは `var(--vscode-font-family)` を使う。外部リンクのクリックは確認ダイアログ経由で `vscode.env.openExternal` に委譲のみ(拡張自身は通信しない)。リリース時は `DESIGN_EXTENSION.md` §11 の外部接続ゼロ検証チェックリストを必ず実施
+- Web フォント・外部 URL 参照(CSS の `@import`/`url()` 含む)禁止。フォントは `var(--vscode-font-family)` を使う。本文リンクはクリックしてもブラウザを開かず、確認ダイアログで URL をクリップボードにコピーするのみ(拡張自身は通信しない)。リリース時は `DESIGN_EXTENSION.md` §11 の外部接続ゼロ検証チェックリストを必ず実施
 - ファイル監視は素の `fs.watch` を使う。chokidar と VSCode の `FileSystemWatcher` はネットワークドライブで信頼できないため使用禁止
 - Webview: `enableScripts: true` + 厳格な CSP 必須。Node API へのアクセス禁止。ファイル I/O・パス解決・ダイアログ表示はすべて Extension Host 側で行う
 - Markdown: `markdown-it`(`html: false`)+ DOMPurify サニタイズ必須。画像は `attachment://` スキームのみ許可

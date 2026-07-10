@@ -114,7 +114,7 @@ type WebviewMessage =
 - `channelUpdated` は差分イベントではなく**リデュース済み最新状態の全量**を送る。50人規模+全履歴読み込み方針なら十分軽く、Webview 側の状態管理バグを構造的に排除できる。描画のみ差分更新する(§6.3)。
 - `RenderedThread` は「親メッセージ+返信配列+リアクション集計済み」のビュー用構造体。Markdown→HTML 変換は **Webview 側**で行う(Host は生テキストを渡す)。
 - `attachments` は当該チャンネルのメッセージが参照する添付の描画情報。Host が `attachments/{ch}/{YYYY-MM}/{ulid}/meta.json` を読み、`blob` を `asWebviewUri` で解決して渡す(Phase 3 追補)。
-- `openLink` は本文中リンクのクリックを Host へ委譲する。Host は URL 全文を確認ダイアログで提示し、承認時のみ `vscode.env.openExternal` を呼ぶ(§10)。拡張自身は当該 URL へ通信しない(Phase 3 追補)。
+- `openLink` は本文中リンクのクリックを Host へ委譲する。**リンクをクリックしてもブラウザは開かない**。Host は URL 全文をダイアログで提示し、「リンクのコピー」選択時のみ URL をクリップボードへコピーする(§10)。拡張自身は当該 URL へ通信しない(Phase 3 追補 / v0.0.3 で挙動変更)。
 
 ## 6. Webview UI 詳細
 
@@ -160,7 +160,7 @@ type WebviewMessage =
 
 - `📎` ボタン → Host が `vscode.window.showOpenDialog` を表示(Webview からの `<input type=file>` は使わない。実パスが取れず共有フォルダへのコピーができないため)。
 - Host 側でサイズ検証(`chat.attachmentMaxBytes`、既定 10MB)。超過時はエラー文言を返す。
-- 画像(png/jpg/gif/webp/svg※svgはサニタイズ困難のためサムネイル化せずファイル扱い)はメッセージ内にインラインサムネイル表示(`attachment://` → `asWebviewUri` 解決)。それ以外はファイル名+サイズのカードで表示し、クリックで `openAttachment` → Host が保存ダイアログを出す(保存時に SHA-256 検証を実施)。
+- 画像(png/jpg/gif/webp/svg※svgはサニタイズ困難のためサムネイル化せずファイル扱い)はメッセージ内にインラインサムネイル表示(`attachment://` → `asWebviewUri` 解決)。**サムネイルのクリックでライトボックス(全画面オーバーレイの拡大表示)を開き**、そこから「ダウンロード」で `openAttachment` を実行する(背景クリック / Esc / 「閉じる」で閉じる)。画像以外はファイル名+サイズのカードで表示し、クリックで直接 `openAttachment` → Host が保存ダイアログを出す(保存時に SHA-256 検証を実施)。
 - Webview へのドラッグ&ドロップ対応は本リリースでは対象外(将来拡張)。
 
 ## 7. TreeView(サイドバー)
@@ -219,8 +219,8 @@ type WebviewMessage =
 - `markdown-it` を Webview バンドルに含める。設定: `{ html: false, linkify: true, breaks: true }`(Slack風に単一改行を `<br>` にする)。
 - 有効記法: 見出し、強調、リスト、引用、コードブロック(フェンス)、インラインコード、テーブル、リンク、水平線。
 - 出力を `DOMPurify.sanitize()` に通す。許可タグ・属性はホワイトリスト方式。
-- リンク: `http(s)://` は社内URLがあり得るため無効化はしないが、クリック時に確認ダイアログ(`vscode.window.showWarningMessage`、URL全文を表示)を挟んだ上で `vscode.env.openExternal` へ委譲する。拡張自身は当該URLへの通信を一切行わない(開くのはOS既定ブラウザ)。`file://` 等その他プロトコルは無効化。
-- 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。
+- リンク: `http(s)://` は表示するが、**クリックしてもブラウザは開かない**(エアギャップ方針。VS Code webview の自動遷移も防ぐため、レンダリング後に `href` を除去して `data-href` に退避する)。クリック時は Host が URL 全文をダイアログ(`vscode.window.showInformationMessage`、モーダル)で提示し、「リンクのコピー」選択時のみ `vscode.env.clipboard.writeText` でクリップボードへコピーする。`file://` 等その他プロトコルは対象外。
+- 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。添付画像のサムネイルはクリックでライトボックス(拡大表示)を開き、そこからダウンロード(保存ダイアログ + SHA-256 検証)できる(§6.5)。
 - コードハイライト: `highlight.js`(common言語のみのビルド)を同梱。失敗時はプレーン表示。
 
 ## 11. ビルド・配布(VSIX / オフライン)
