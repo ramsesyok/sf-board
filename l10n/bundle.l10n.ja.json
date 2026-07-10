@@ -13,8 +13,9 @@
   "Integrity check (SHA-256) failed for \"{0}\". The file may be corrupted.": "「{0}」の完全性チェック(SHA-256)に失敗しました。ファイルが破損している可能性があります。",
   "Saved: {0}": "保存しました: {0}",
   "Attachment not found.": "添付が見つかりません。",
-  "Open this link in your browser?\n{0}": "このリンクをブラウザで開きますか?\n{0}",
-  "Open": "開く",
+  "Copy this link to the clipboard? (For security, links are not opened in a browser.)\n{0}": "このリンクをクリップボードにコピーしますか?(セキュリティのため、リンクはブラウザで開きません)\n{0}",
+  "Copy link": "リンクのコピー",
+  "Link copied to the clipboard.": "リンクをクリップボードにコピーしました。",
   "Cancel": "キャンセル",
   "Offline: the message was queued and will be sent when the shared folder is reachable.": "オフラインのため送信キューに追加しました。共有フォルダに到達できるようになったら送信されます。"
 }

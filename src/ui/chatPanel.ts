@@ -168,7 +168,8 @@ export class ChatPanel {
   }
 
   private async handleOpenLink(href: string): Promise<void> {
-    // §10: http(s) のみ、URL 全文を確認ダイアログで提示してから openExternal に委譲。
+    // エアギャップ方針: リンクをクリックしてもブラウザは開かない。
+    // http(s) のみ、URL 全文をダイアログで提示し、「リンクのコピー」でクリップボードへコピーする。
     let uri: vscode.Uri;
     try {
       uri = vscode.Uri.parse(href, true);
@@ -176,10 +177,11 @@ export class ChatPanel {
       return;
     }
     if (uri.scheme !== "http" && uri.scheme !== "https") return;
-    const openLabel = hl("linkOpen");
-    const choice = await vscode.window.showWarningMessage(hl("linkConfirm", href), { modal: true }, openLabel);
-    if (choice === openLabel) {
-      await vscode.env.openExternal(uri);
+    const copyLabel = hl("linkCopy");
+    const choice = await vscode.window.showInformationMessage(hl("linkConfirm", href), { modal: true }, copyLabel);
+    if (choice === copyLabel) {
+      await vscode.env.clipboard.writeText(href);
+      void vscode.window.showInformationMessage(hl("linkCopied"));
     }
   }
 
@@ -361,6 +363,22 @@ body {
 }
 .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .attachment-image { max-width: 240px; max-height: 200px; border-radius: 4px; cursor: pointer; }
+.ext-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(0,0,0,0.8); padding: 24px;
+}
+.lightbox-toolbar { display: flex; gap: 8px; }
+.lightbox-btn {
+  color: var(--vscode-button-foreground); background: var(--vscode-button-background);
+  border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer;
+}
+.lightbox-btn:hover { background: var(--vscode-button-hoverBackground); }
+.lightbox-img {
+  max-width: 92vw; max-height: 82vh; object-fit: contain;
+  border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
 .attachment-card {
   display: inline-flex; flex-direction: column; cursor: pointer;
   border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 6px 10px;

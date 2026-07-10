@@ -219,6 +219,7 @@ function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
   const body = document.createElement("div");
   body.className = "msg-body";
   body.innerHTML = renderMarkdown(p.body);
+  neutralizeLinks(body);
   main.appendChild(body);
 
   if (p.state === "error") {
@@ -286,6 +287,7 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
     body.textContent = tr("deletedMessage");
   } else {
     body.innerHTML = renderMarkdown(msg.body);
+    neutralizeLinks(body);
   }
   main.appendChild(body);
 
@@ -313,7 +315,8 @@ function renderAttachments(ulids: string[]): HTMLElement {
       img.src = info.uri;
       img.alt = info.name;
       img.title = info.name;
-      img.addEventListener("click", () => postMsg({ kind: "openAttachment", ulid }));
+      // サムネイルクリックでライトボックス表示(拡大)。ダウンロードは拡大画像から行う。
+      img.addEventListener("click", () => openLightbox(ulid));
       wrap.appendChild(img);
     } else {
       const card = document.createElement("div");
@@ -573,6 +576,61 @@ function renderMarkdown(source: string): string {
   const rawHtml = md.render(source);
   return DOMPurify.sanitize(rawHtml, SANITIZE_OPTIONS) as unknown as string;
 }
+
+// 本文リンクの href を除去して data-href に退避する。
+// VS Code の webview は href 付きリンクのクリックで外部ブラウザを開こうとするため、
+// href を消して自動遷移を防ぎ、クリックは委譲ハンドラで処理する(→ Host のコピー用ダイアログ)。
+function neutralizeLinks(container: HTMLElement): void {
+  for (const a of container.querySelectorAll("a")) {
+    const href = a.getAttribute("href");
+    if (!href) continue;
+    a.setAttribute("data-href", href);
+    a.removeAttribute("href");
+    a.classList.add("ext-link");
+    if (!a.getAttribute("title")) a.setAttribute("title", href);
+  }
+}
+
+// ---- ライトボックス(画像拡大表示) ----
+let lightboxEl: HTMLElement | undefined;
+function openLightbox(ulid: string): void {
+  const info = attachments[ulid];
+  if (!info) return;
+  closeLightbox();
+
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeLightbox(); // 背景クリックで閉じる
+  });
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "lightbox-toolbar";
+  const dl = document.createElement("button");
+  dl.className = "lightbox-btn";
+  dl.textContent = tr("download");
+  dl.addEventListener("click", () => postMsg({ kind: "openAttachment", ulid }));
+  const close = document.createElement("button");
+  close.className = "lightbox-btn";
+  close.textContent = tr("close");
+  close.addEventListener("click", closeLightbox);
+  toolbar.appendChild(dl);
+  toolbar.appendChild(close);
+
+  const img = document.createElement("img");
+  img.className = "lightbox-img";
+  img.src = info.uri;
+  img.alt = info.name;
+
+  overlay.appendChild(toolbar);
+  overlay.appendChild(img);
+  document.body.appendChild(overlay);
+  lightboxEl = overlay;
+}
+function closeLightbox(): void {
+  lightboxEl?.remove();
+  lightboxEl = undefined;
+}
 function span(cls: string, text: string): HTMLSpanElement {
   const el = document.createElement("span");
   if (cls) el.className = cls;
@@ -656,20 +714,24 @@ function autoResize(): void {
   inputEl.style.height = `${Math.min(inputEl.scrollHeight, window.innerHeight * 0.4)}px`;
 }
 
-// Ctrl+F / Cmd+F で検索バー(§8: Webview 内でキーを奪う)。
+// Ctrl+F / Cmd+F で検索バー(§8: Webview 内でキーを奪う)。Esc でライトボックスを閉じる。
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     openSearch();
+  } else if (e.key === "Escape" && lightboxEl) {
+    e.preventDefault();
+    closeLightbox();
   }
 });
 
-// 本文内リンクのクリックは Host へ委譲(§10: 確認ダイアログ → openExternal)。
+// 本文内リンクのクリックは Host へ委譲(ブラウザは開かず、コピー用ダイアログを表示)。
+// href は neutralizeLinks で data-href に退避済み(自動遷移防止)。
 messagesEl.addEventListener("click", (e) => {
-  const target = (e.target as HTMLElement).closest("a");
-  if (target instanceof HTMLAnchorElement) {
+  const anchor = (e.target as HTMLElement).closest("a");
+  if (anchor) {
     e.preventDefault();
-    const href = target.getAttribute("href");
+    const href = anchor.getAttribute("data-href");
     if (href) postMsg({ kind: "openLink", href });
   }
 });
