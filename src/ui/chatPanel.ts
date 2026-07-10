@@ -300,7 +300,7 @@ body {
 }
 .messages { flex: 1 1 auto; overflow-y: auto; padding: 12px 16px; }
 .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 24px; }
-.msg { display: flex; gap: 8px; padding: 4px 0; }
+.msg { display: flex; gap: 8px; padding: 4px 0; position: relative; }
 .msg.reply { margin-left: 28px; }
 .msg.pending { opacity: 0.6; }
 .avatar {
@@ -342,11 +342,20 @@ body {
 }
 .reaction:hover { border-color: var(--vscode-focusBorder); }
 .reaction.mine { border-color: var(--vscode-focusBorder); background: var(--vscode-editor-selectionBackground); }
-.msg-actions { display: none; gap: 6px; margin-top: 2px; }
+/* ホバー時にメッセージ右上へ浮かぶ操作ツールバー(絶対配置なのでレイアウトを動かさない)。 */
+.msg-actions {
+  position: absolute; top: -12px; right: 8px; z-index: 5;
+  display: none; gap: 1px; align-items: center;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px; padding: 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
 .msg:hover .msg-actions { display: flex; }
 .action-btn {
-  background: none; border: 1px solid var(--vscode-panel-border); border-radius: 4px;
-  color: var(--vscode-foreground); cursor: pointer; font-size: 0.8em; padding: 0 6px;
+  background: none; border: none; border-radius: 4px;
+  color: var(--vscode-foreground); cursor: pointer;
+  font-size: 1em; line-height: 1; padding: 3px 5px;
 }
 .action-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 .thread-toggle {
