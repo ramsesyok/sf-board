@@ -40,6 +40,9 @@ const EMOJI_SET = [
   "🚀", "⭐",
 ];
 
+// ホバーツールバーのクイックリアクション(ワンクリック用)。EMOJI_SET の一部。
+const QUICK_REACTIONS = ["👍", "✅", "👀"];
+
 // ---- 状態 ----
 let selfUserId = "";
 let users: Record<string, UserProfile> = {};
@@ -349,17 +352,29 @@ function renderActions(msg: MessageState, isReply: boolean): HTMLElement {
   const actions = document.createElement("div");
   actions.className = "msg-actions";
 
-  const react = document.createElement("button");
-  react.className = "action-btn";
-  react.textContent = "＋😀";
-  react.title = tr("addReaction");
-  react.addEventListener("click", (e) => openEmojiPicker(msg.id, e.currentTarget as HTMLElement));
-  actions.appendChild(react);
+  // クイックリアクション(ワンクリックでトグル)。
+  for (const emoji of QUICK_REACTIONS) {
+    const b = document.createElement("button");
+    b.className = "action-btn";
+    b.textContent = emoji;
+    b.addEventListener("click", () => postMsg({ kind: "toggleReaction", targetId: msg.id, emoji }));
+    actions.appendChild(b);
+  }
 
+  // 追加リアクション(絵文字ピッカーを開く)。
+  const more = document.createElement("button");
+  more.className = "action-btn";
+  more.textContent = "＋";
+  more.title = tr("addReaction");
+  more.addEventListener("click", (e) => openEmojiPicker(msg.id, e.currentTarget as HTMLElement));
+  actions.appendChild(more);
+
+  // 返信(親メッセージのみ)。
   if (!isReply) {
     const reply = document.createElement("button");
     reply.className = "action-btn";
-    reply.textContent = tr("reply");
+    reply.textContent = "↩";
+    reply.title = tr("reply");
     reply.addEventListener("click", () => {
       expandedThreads.add(msg.id);
       render();
