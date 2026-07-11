@@ -183,8 +183,11 @@
     "vitest": "^1.6.0"
   },
   "dependencies": {
+    "@vscode/markdown-it-katex": "^1.1.2",
     "dompurify": "^3.4.11",
     "highlight.js": "^11.11.1",
-    "markdown-it": "^14.3.0"
+    "katex": "^0.17.0",
+    "markdown-it": "^14.3.0",
+    "mermaid": "^11.16.0"
   }
 }

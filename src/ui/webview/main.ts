@@ -7,6 +7,9 @@
 import MarkdownIt from "markdown-it";
 import DOMPurify, { type Config } from "dompurify";
 import hljs from "highlight.js/lib/common";
+import katex from "katex";
+import katexPlugin from "@vscode/markdown-it-katex";
+import mermaid from "mermaid";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../../shared/protocol";
 import type { RenderedThread, MessageState } from "../../core/reducer";
 import type { UserProfile } from "../../shared/types";
@@ -36,6 +39,68 @@ md.set({
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
+
+// 数式($...$ / $$...$$ / ```math)と mermaid(```mermaid)は「プレースホルダ span」に描画し、
+// サニタイズ後に KaTeX / mermaid で実描画する(§10)。KaTeX/mermaid の出力は複雑な span/SVG/
+// inline style を含み厳格な DOMPurify を通せないが、いずれも自前で安全な HTML を生成する
+// (KaTeX は trust:false で XSS 安全、mermaid は securityLevel:strict)ため、サニタイズ後に差し込む。
+// プレースホルダは span + class + エスケープ済みテキストのみで、既存の DOMPurify 設定を通過する。
+md.use(katexPlugin);
+function mathPlaceholder(tex: string, display: boolean): string {
+  return `<span class="math-src${display ? " math-display" : ""}">${md.utils.escapeHtml(tex)}</span>`;
+}
+md.renderer.rules.math_inline = (t, i) => mathPlaceholder(t[i].content, false);
+md.renderer.rules.math_block = (t, i) => mathPlaceholder(t[i].content, true);
+md.renderer.rules.math_inline_block = (t, i) => mathPlaceholder(t[i].content, true);
+md.renderer.rules.math_inline_bare_block = (t, i) => mathPlaceholder(t[i].content, true);
+
+// mermaid と ```math フェンスはプレースホルダに。それ以外は既定(=ハイライト)へ委譲。
+const prevFence = md.renderer.rules.fence;
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const info = (tokens[idx].info || "").trim().split(/\s+/)[0];
+  if (info === "mermaid") return `<span class="mermaid-src">${md.utils.escapeHtml(tokens[idx].content)}</span>`;
+  if (info === "math") return mathPlaceholder(tokens[idx].content, true);
+  return prevFence ? prevFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
+};
+
+// mermaid 初期化(テーマは VS Code に追従、strict でスクリプト無効)。
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "strict",
+  theme: document.body.classList.contains("vscode-light") ? "default" : "dark",
+  fontFamily: "inherit",
+});
+let mermaidSeq = 0;
+
+// プレースホルダを KaTeX / mermaid で実描画する(サニタイズ後に呼ぶ)。
+async function renderMathAndDiagrams(container: HTMLElement): Promise<void> {
+  for (const el of container.querySelectorAll<HTMLElement>(".math-src")) {
+    const tex = el.textContent ?? "";
+    try {
+      // KaTeX 出力(trust:false)は安全なため innerHTML に直接差し込む。
+      el.innerHTML = katex.renderToString(tex, {
+        displayMode: el.classList.contains("math-display"),
+        throwOnError: false,
+        output: "htmlAndMathml",
+      });
+    } catch {
+      el.textContent = tex;
+    }
+    el.classList.remove("math-src");
+  }
+  for (const el of [...container.querySelectorAll<HTMLElement>(".mermaid-src")]) {
+    const code = el.textContent ?? "";
+    try {
+      const { svg } = await mermaid.render(`mmd-${mermaidSeq++}`, code);
+      el.innerHTML = svg; // mermaid(securityLevel:strict)がサニタイズ済み。
+      el.classList.remove("mermaid-src");
+      el.classList.add("mermaid-rendered");
+    } catch (err) {
+      el.classList.add("mermaid-error");
+      el.textContent = err instanceof Error ? err.message : String(err);
+    }
+  }
+}
 
 // DOMPurify ホワイトリスト(§10 有効記法)。
 const SANITIZE_OPTIONS: Config = {
@@ -361,6 +426,7 @@ function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
   body.innerHTML = renderMarkdown(p.body);
   neutralizeLinks(body);
   decorateMentions(body);
+  void renderMathAndDiagrams(body);
   main.appendChild(body);
 
   if (p.state === "error") {
@@ -430,6 +496,7 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
     body.innerHTML = renderMarkdown(msg.body);
     neutralizeLinks(body);
     decorateMentions(body);
+    void renderMathAndDiagrams(body);
   }
   main.appendChild(body);
 
