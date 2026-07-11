@@ -61,7 +61,11 @@ export class ChatModel {
   constructor(
     private readonly rootPath: string,
     private readonly selfUserId: string,
-  ) {}
+  ) {
+    // チャンネルごとにパネルが購読するため、既定の 10 では誤検知警告が出る。
+    // 50人・多チャンネル規模を想定して上限を引き上げる(0=無制限にはしない)。
+    this.emitter.setMaxListeners(200);
+  }
 
   /** ローカルキャッシュ(未読・送信キュー)を設定する。 */
   setLocalCache(cache: LocalCache): void {

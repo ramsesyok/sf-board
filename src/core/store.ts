@@ -103,14 +103,29 @@ export async function atomicWriteFile(filePath: string, data: string | Buffer): 
   const dir = path.dirname(filePath);
   await ensureDir(dir);
   const tmpPath = path.join(dir, `${path.basename(filePath)}.tmp.${randomToken()}`);
-  const fh = await fsp.open(tmpPath, "w");
   try {
-    await fh.writeFile(data);
-    await fh.sync(); // flush してからリネームし、可視化時点で内容が完全であることを保証。
-  } finally {
-    await fh.close();
+    const fh = await fsp.open(tmpPath, "w");
+    try {
+      await fh.writeFile(data);
+      await fh.sync(); // flush してからリネームし、可視化時点で内容が完全であることを保証。
+    } finally {
+      await fh.close();
+    }
+    await fsp.rename(tmpPath, filePath);
+  } catch (err) {
+    // 失敗時は一時ファイルを残さない(共有フォルダに .tmp.* を溜めない)。
+    await removeIfExists(tmpPath);
+    throw err;
   }
-  await fsp.rename(tmpPath, filePath);
+}
+
+/** ファイルを削除する。存在しない/削除失敗は無視する(後始末用)。 */
+async function removeIfExists(p: string): Promise<void> {
+  try {
+    await fsp.rm(p, { force: true });
+  } catch {
+    /* ignore */
+  }
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
@@ -337,18 +352,24 @@ export async function writeAttachment(
   await ensureDir(dir);
 
   const tmpBlob = path.join(dir, `blob.tmp.${randomToken()}`);
-  const fh = await fsp.open(tmpBlob, "w");
   try {
-    await fh.writeFile(data);
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
+    const fh = await fsp.open(tmpBlob, "w");
+    try {
+      await fh.writeFile(data);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
 
-  const meta: AttachmentMeta = { name, mime, size: data.length, sha256: sha256Hex(data) };
-  await atomicWriteFile(attachmentMetaPath(rootPath, channelId, month, ulid), JSON.stringify(meta, null, 2) + "\n");
-  await fsp.rename(tmpBlob, attachmentBlobPath(rootPath, channelId, month, ulid));
-  return meta;
+    const meta: AttachmentMeta = { name, mime, size: data.length, sha256: sha256Hex(data) };
+    await atomicWriteFile(attachmentMetaPath(rootPath, channelId, month, ulid), JSON.stringify(meta, null, 2) + "\n");
+    await fsp.rename(tmpBlob, attachmentBlobPath(rootPath, channelId, month, ulid));
+    return meta;
+  } catch (err) {
+    // 失敗時は書きかけの blob.tmp を残さない。
+    await removeIfExists(tmpBlob);
+    throw err;
+  }
 }
 
 export interface StoredAttachment {
