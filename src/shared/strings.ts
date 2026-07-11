@@ -50,6 +50,13 @@ const en = {
   "setupDisplayNamePrompt": "Your display name",
   "rootPathNotConfigured": "The shared folder path (sfBoard.rootPath) is not configured. Run \"SF Board: Setup\".",
   "rootPathUnreachable": "Cannot reach the shared folder: {0}",
+  "verifyConnectionButton": "Verify connection",
+  "uncNotAllowed": "The shared folder host \"{0}\" is not in VS Code's allowed UNC hosts (security.allowedUNCHosts). Add it and reload the window?",
+  "uncAddAndReload": "Add and reload",
+  "uncDeclined": "The UNC host was not added, so the shared folder will not be accessible. You can add it later, or run \"SF Board: Verify Shared Folder Connection\".",
+  "uncUpdateFailed": "Failed to update security.allowedUNCHosts automatically: {0}. Please add the host manually in Settings.",
+  "verifyOk": "Shared folder connection: OK",
+  "verifyNg": "Shared folder connection: a problem was detected. See details.",
 } as const;
 
 type StringKey = keyof typeof en;
@@ -96,6 +103,13 @@ const ja: Record<StringKey, string> = {
   "setupDisplayNamePrompt": "表示名",
   "rootPathNotConfigured": "共有フォルダのパス(sfBoard.rootPath)が未設定です。「SF Board: 初期設定」を実行してください。",
   "rootPathUnreachable": "共有フォルダに到達できません: {0}",
+  "verifyConnectionButton": "接続確認",
+  "uncNotAllowed": "共有フォルダのホスト「{0}」が VS Code の許可リスト(security.allowedUNCHosts)に登録されていません。追加してウィンドウを再読み込みしますか?",
+  "uncAddAndReload": "追加して再読み込み",
+  "uncDeclined": "UNC ホストを追加しなかったため、共有フォルダにアクセスできません。後から追加するか、「SF Board: 共有フォルダの接続確認」で状態を確認できます。",
+  "uncUpdateFailed": "security.allowedUNCHosts の自動更新に失敗しました: {0}。設定で手動追加してください。",
+  "verifyOk": "共有フォルダ接続: 正常",
+  "verifyNg": "共有フォルダ接続: 問題を検出しました。詳細を確認してください。",
 };
 
 const bundles: Record<Lang, Record<StringKey, string>> = { en, ja };

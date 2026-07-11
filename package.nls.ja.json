@@ -7,6 +7,7 @@
   "command.refresh": "更新",
   "command.setup": "初期設定",
   "command.showDiagnostics": "同期診断ログを表示",
+  "command.verifyConnection": "共有フォルダの接続確認",
   "config.rootPath": "ストレージ兼トランスポートとして使う共有フォルダ(chat-root)のパス。必須。",
   "config.userId": "ユーザーID。空欄の場合は OS のユーザー名を使用します。",
   "config.displayName": "他のユーザーに表示される表示名。",

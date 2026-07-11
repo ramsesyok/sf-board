@@ -17,11 +17,13 @@ import {
   REFRESH_COMMAND,
   SETUP_COMMAND,
   SHOW_DIAGNOSTICS_COMMAND,
+  VERIFY_CONNECTION_COMMAND,
   CHANNELS_VIEW_ID,
 } from "./ui/commandIds";
 import { hl } from "./host/hostL10n";
 import { OutputChannelDiagnosticsLogger } from "./host/diagnosticsLogger";
 import type { DiagnosticsLogger } from "./core/diagnostics";
+import { parseUncHost, probeSharedFolder } from "./host/connectionCheck";
 
 const CONFIG_SECTION = "sfBoard";
 
@@ -60,6 +62,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       runtime?.tree.refresh();
     }),
     vscode.commands.registerCommand(SHOW_DIAGNOSTICS_COMMAND, () => logChannel.show()),
+    vscode.commands.registerCommand(VERIFY_CONNECTION_COMMAND, () => runVerifyConnection()),
   );
 
   // パネル復元(VSCode 再起動後にタブを再初期化)。DESIGN_EXTENSION.md §4。
@@ -79,14 +82,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // 設定変更(rootPath 等)で再初期化する。
+  // 設定変更で再初期化する。ただし再初期化が必要なキーに限定し(表示系設定はパネル再作成不要)、
+  // 変更を 250ms デバウンス+直列化する。初期設定は rootPath/userId/displayName を連続更新するため、
+  // これを行わないと reinitialize が多重に走って共有フォルダ上で競合し、初回セットアップで
+  // 一時的なエラーが出る(その後は正常)問題が起きる。
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration(CONFIG_SECTION)) void reinitialize(context);
+      if (REINIT_KEYS.some((k) => e.affectsConfiguration(k))) scheduleReinitialize(context);
     }),
   );
 
   await reinitialize(context);
+}
+
+// 再初期化が必要な設定キー(表示系: threadDisplay / attachmentMaxBytes /
+// imageInlinePreview / diagnostics.enabled は都度参照なので除外)。
+const REINIT_KEYS = [
+  "sfBoard.rootPath",
+  "sfBoard.userId",
+  "sfBoard.displayName",
+  "sfBoard.poll.reconcileSec",
+  "sfBoard.poll.fallbackSec",
+  "sfBoard.watch.enabled",
+];
+
+// ---- 再初期化のデバウンス+直列化 ----
+let reinitTimer: ReturnType<typeof setTimeout> | undefined;
+let reinitRunning = false;
+let reinitPending = false;
+
+function scheduleReinitialize(context: vscode.ExtensionContext): void {
+  if (reinitTimer) clearTimeout(reinitTimer);
+  reinitTimer = setTimeout(() => {
+    reinitTimer = undefined;
+    void runReinitializeSerialized(context);
+  }, 250);
+}
+
+async function runReinitializeSerialized(context: vscode.ExtensionContext): Promise<void> {
+  if (reinitRunning) {
+    reinitPending = true; // 実行中の再初期化と重ねない。終わったら 1 回だけ再実行。
+    return;
+  }
+  reinitRunning = true;
+  try {
+    await reinitialize(context);
+  } finally {
+    reinitRunning = false;
+    if (reinitPending) {
+      reinitPending = false;
+      void runReinitializeSerialized(context);
+    }
+  }
 }
 
 export function deactivate(): void {
@@ -110,6 +157,10 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
+  // Windows + UNC パスでホストが security.allowedUNCHosts に無い場合は、
+  // 初期化(fs アクセス)を試みる前に許可の同意を取る(取れなければ中断)。
+  if (await handleUncPermissionIfNeeded(rootPath)) return;
+
   const selfUserId = resolveUserId(config.get<string>("userId"));
   const displayName = (config.get<string>("displayName") ?? "").trim();
 
@@ -124,7 +175,12 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
   try {
     await model.init(displayName);
   } catch (err) {
-    void vscode.window.showErrorMessage(hl("rootPathUnreachable", err instanceof Error ? err.message : String(err)));
+    const detail = err instanceof Error ? `${(err as NodeJS.ErrnoException).code ?? ""} ${err.message}`.trim() : String(err);
+    void vscode.window
+      .showErrorMessage(hl("rootPathUnreachable", detail), hl("verifyConnectionButton"))
+      .then((choice) => {
+        if (choice === hl("verifyConnectionButton")) void runVerifyConnection();
+      });
     return;
   }
 
@@ -169,6 +225,75 @@ function resolveUserId(configured: string | undefined): string {
   } catch {
     return "user";
   }
+}
+
+/** rootPath が UNC で、ホストが security.allowedUNCHosts に許可されているか。 */
+function isUncHostAllowed(rootPath: string): { isUnc: boolean; host?: string; allowed: boolean; restrictActive: boolean } {
+  const host = process.platform === "win32" ? parseUncHost(rootPath) : undefined;
+  if (!host) return { isUnc: false, allowed: true, restrictActive: false };
+  const sec = vscode.workspace.getConfiguration("security");
+  const restrictActive = sec.get<boolean>("restrictUNCAccess", true);
+  const allowedHosts = sec.get<string[]>("allowedUNCHosts", []) ?? [];
+  const allowed = !restrictActive || allowedHosts.some((h) => h.toLowerCase() === host.toLowerCase());
+  return { isUnc: true, host, allowed, restrictActive };
+}
+
+/**
+ * Windows で UNC ホストが未許可なら、確認の上 security.allowedUNCHosts に追加してウィンドウを
+ * 再読み込みする(設定の反映に再読み込みが必要なため)。処理した(=init を中断すべき)場合 true。
+ */
+async function handleUncPermissionIfNeeded(rootPath: string): Promise<boolean> {
+  const status = isUncHostAllowed(rootPath);
+  if (!status.isUnc || status.allowed || !status.host) return false;
+
+  const addLabel = hl("uncAddAndReload");
+  const choice = await vscode.window.showWarningMessage(hl("uncNotAllowed", status.host), { modal: true }, addLabel);
+  if (choice !== addLabel) {
+    void vscode.window.showWarningMessage(hl("uncDeclined"));
+    return true; // 未許可のまま init に進んでも失敗するので中断。
+  }
+  try {
+    const sec = vscode.workspace.getConfiguration("security");
+    const current = sec.get<string[]>("allowedUNCHosts", []) ?? [];
+    if (!current.some((h) => h.toLowerCase() === status.host!.toLowerCase())) {
+      await sec.update("allowedUNCHosts", [...current, status.host], vscode.ConfigurationTarget.Global);
+    }
+    await vscode.commands.executeCommand("workbench.action.reloadWindow");
+  } catch (err) {
+    void vscode.window.showErrorMessage(hl("uncUpdateFailed", err instanceof Error ? err.message : String(err)));
+  }
+  return true;
+}
+
+/** 共有フォルダの接続状態を検査して結果を表示する(初期セットアップ不調時の診断)。 */
+async function runVerifyConnection(): Promise<void> {
+  const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+  const rootPath = (config.get<string>("rootPath") ?? "").trim();
+  if (!rootPath) {
+    void vscode.window.showWarningMessage(hl("rootPathNotConfigured"));
+    return;
+  }
+
+  const lines: string[] = [`Path: ${rootPath}`, `Platform: ${process.platform}`];
+  const unc = isUncHostAllowed(rootPath);
+  if (unc.isUnc) {
+    lines.push(
+      `UNC host: ${unc.host} — allowedUNCHosts: ${unc.allowed ? "OK" : "NG (not registered)"}` +
+        (unc.restrictActive ? "" : " (restrictUNCAccess disabled)"),
+    );
+  }
+
+  const probe = await probeSharedFolder(rootPath);
+  lines.push(`Exists: ${probe.exists ? "OK" : "NG"}${probe.exists && !probe.isDirectory ? " (not a directory)" : ""}`);
+  lines.push(`Readable: ${probe.readable ? "OK" : "NG"}`);
+  lines.push(`Writable: ${probe.writable ? "OK" : "NG"}`);
+  lines.push(`workspace.json: ${probe.workspaceExists ? "exists (initialized)" : "absent (not initialized)"}`);
+  if (probe.errorCode || probe.errorMessage) {
+    lines.push(`Error: ${(probe.errorCode ?? "").trim()} ${(probe.errorMessage ?? "").trim()}`.trim());
+  }
+
+  const ok = probe.exists && probe.isDirectory && probe.readable && probe.writable && unc.allowed;
+  await vscode.window.showInformationMessage(hl(ok ? "verifyOk" : "verifyNg"), { modal: true, detail: lines.join("\n") });
 }
 
 async function runSetup(): Promise<void> {

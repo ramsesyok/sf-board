@@ -197,6 +197,7 @@ type WebviewMessage =
 | `sfBoard.refresh` | 手動同期(照合ポーリングを即時実行) |
 | `sfBoard.setup` | 初期設定ウィザード(rootPath/userId/displayName を順に入力) |
 | `sfBoard.showDiagnostics` | 同期診断ログの出力チャネルを表示(§8.1) |
+| `sfBoard.verifyConnection` | 共有フォルダの接続確認(存在/読み書き/UNC 許可/実エラーを検査、§8.2) |
 
 ### 設定(DESIGN.md §7 の表に追加)
 
@@ -217,6 +218,12 @@ type WebviewMessage =
 - **出力先**: VSCode の `LogOutputChannel`「SF Board」。`window.createOutputChannel(name, { log:true })` で生成し、VSCode が拡張のログディレクトリへ自動保存する。外部送信・テレメトリは行わない(DESIGN.md 技術的制約の外部接続ゼロを厳守)。共有フォルダには一切書き込まない。
 - **記録内容(メタデータのみ)**: 同期イベント名 + メタデータ(`change.detected`(source/件数/カーソル名)、`reconcile.tick`(foundChange/watchNotified/missed)、`sync.fallback`、`watch.notify` / `watch.error` / `watch.retry`、`channel.updated`(channelId/イベント数/最新ULID)、`queue.flush`、`send.queued` 等)。**メッセージ本文・添付内容などの機密情報は記録しない**。
 - **実装**: core 層は vscode 非依存の `DiagnosticsLogger` インターフェース(`core/diagnostics.ts`)で抽象化し、SyncEngine / ChatModel を計装する。Host が `LogOutputChannel` 実装(`host/diagnosticsLogger.ts`)を注入する。無効時は no-op ロガーを用い、`isEnabled()` 判定で出力を抑止する。`debug` レベルの高頻度イベント(`watch.notify` / `reconcile.tick` 等)は出力パネルのログレベルを上げたときのみ表示される。
+
+### 8.2 セットアップの堅牢化と共有フォルダ接続診断
+
+- **再初期化のデバウンス+直列化**: 初期設定は `rootPath`/`userId`/`displayName` を連続して `config.update` するため、素朴に「設定変更ごとに `reinitialize`」を呼ぶと再初期化が多重に走り、共有フォルダ(特にネットワーク)上で `model.init`(mkdir/書込/読込)が競合して**初回セットアップで一時的なエラー**が出る(その後は正常)。対策として、設定変更を 250ms デバウンスし、`reinitialize` を直列化する(実行中なら 1 回だけ再実行を予約)。再初期化の契機は必要なキー(`rootPath`/`userId`/`displayName`/`poll.*`/`watch.enabled`)に限定し、表示系設定(`threadDisplay`/`attachmentMaxBytes`/`imageInlinePreview`/`diagnostics.enabled`。都度参照)では再初期化しない。
+- **UNC ホスト許可(Windows)**: VS Code は UNC パス(`\\host\share`)を `security.allowedUNCHosts` で制限する。`reinitialize` は init 前に、Windows かつ UNC かつ未許可(`security.restrictUNCAccess` 有効)を検出したら、確認ダイアログを出し、同意時のみ `security.allowedUNCHosts` にホストを追加してウィンドウを再読み込みする(設定反映に再読み込みが必要なため)。同意が得られない場合は init を中断する(サイレント追加はしない)。
+- **接続確認コマンド** `sfBoard.verifyConnection`: 共有フォルダの存在・ディレクトリ種別・読み取り・書き込み(一時ファイルで実測し必ず削除)・`workspace.json` の有無・UNC 許可状態・実エラー(code/path)を検査し、結果をモーダルで表示する。init 失敗時のエラーメッセージにも原因(エラーコード)を含め、「接続確認」ボタンから本コマンドを起動できる。判定ロジックは vscode 非依存の `host/connectionCheck.ts`(`parseUncHost`/`probeSharedFolder`)に置き単体テストする。
 
 ### キーバインド
 
