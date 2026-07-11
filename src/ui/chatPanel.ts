@@ -355,9 +355,11 @@ body {
 .reply-summary .last { color: var(--vscode-descriptionForeground); }
 .messages { flex: 1 1 auto; overflow-y: auto; padding: 12px 16px; }
 .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 24px; }
-.msg { display: flex; gap: 8px; padding: 4px 0; position: relative; }
+.msg { display: flex; gap: 8px; padding: 4px 6px; position: relative; border-radius: 4px; }
 .msg.reply { margin-left: 28px; }
 .msg.pending { opacity: 0.6; }
+/* ホバー中のメッセージを背景色で明示(ライト/ダーク両テーマ対応。変数が無い環境向けにフォールバック)。 */
+.msg:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.14)); }
 .avatar {
   flex: 0 0 auto; width: 28px; height: 28px; border-radius: 4px;
   display: flex; align-items: center; justify-content: center;
