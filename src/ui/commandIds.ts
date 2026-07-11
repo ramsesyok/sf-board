@@ -5,5 +5,6 @@ export const RENAME_CHANNEL_COMMAND = "sfBoard.renameChannel";
 export const REFRESH_COMMAND = "sfBoard.refresh";
 export const SETUP_COMMAND = "sfBoard.setup";
 export const SHOW_DIAGNOSTICS_COMMAND = "sfBoard.showDiagnostics";
+export const VERIFY_CONNECTION_COMMAND = "sfBoard.verifyConnection";
 
 export const CHANNELS_VIEW_ID = "sfBoardChannels";

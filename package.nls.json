@@ -7,6 +7,7 @@
   "command.refresh": "Refresh",
   "command.setup": "Setup",
   "command.showDiagnostics": "Show Sync Diagnostics Log",
+  "command.verifyConnection": "Verify Shared Folder Connection",
   "config.rootPath": "Path to the shared folder (chat-root) used as storage and transport. Required.",
   "config.userId": "Your user ID. Uses the OS user name when empty.",
   "config.displayName": "Your display name shown to others.",

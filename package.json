@@ -76,6 +76,11 @@
         "command": "sfBoard.showDiagnostics",
         "title": "%command.showDiagnostics%",
         "category": "SF Board"
+      },
+      {
+        "command": "sfBoard.verifyConnection",
+        "title": "%command.verifyConnection%",
+        "category": "SF Board"
       }
     ],
     "menus": {
