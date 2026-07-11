@@ -244,13 +244,16 @@ export class ChatPanel {
     const webview = this.panel.webview;
     const nonce = makeNonce();
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js"));
+    const katexCssUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "katex.css"));
     const cspSource = webview.cspSource;
     // CSP: 外部オリジンは一切許可しない(DESIGN_EXTENSION.md §4)。
-    // 画像は Phase 3 で attachment:// を asWebviewUri(= cspSource)へ解決して表示する。
+    // 画像は attachment:// を asWebviewUri(= cspSource)へ解決して表示する。
+    // font-src data: は KaTeX のフォント(dist/katex.css に data URI で内包)用(外部接続なし)。
     const csp = [
       "default-src 'none'",
       `img-src ${cspSource}`,
       `style-src ${cspSource} 'unsafe-inline'`,
+      `font-src data:`,
       `script-src 'nonce-${nonce}'`,
     ].join("; ");
 
@@ -260,6 +263,7 @@ export class ChatPanel {
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${katexCssUri}">
 <style>${WEBVIEW_CSS}</style>
 </head>
 <body>
@@ -427,6 +431,19 @@ body.vscode-light .hljs-function .hljs-title, body.vscode-light .hljs-title,
 body.vscode-light .hljs-title.function_ { color: #795e26; }
 body.vscode-light .hljs-variable, body.vscode-light .hljs-attr, body.vscode-light .hljs-attribute,
 body.vscode-light .hljs-template-variable, body.vscode-light .hljs-property { color: #001080; }
+
+/* 数式(KaTeX)・図(mermaid)。プレースホルダ span をブロック表示にする。 */
+.math-display { display: block; overflow-x: auto; margin: 6px 0; text-align: center; }
+.katex { font-size: 1.05em; }
+.katex-display { margin: 6px 0; }
+.mermaid-src, .mermaid-rendered { display: block; overflow-x: auto; margin: 8px 0; text-align: center; }
+.mermaid-rendered svg { max-width: 100%; height: auto; }
+.mermaid-error {
+  display: block; white-space: pre-wrap; color: var(--vscode-errorForeground);
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 0.9em;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+  border-radius: 4px; padding: 6px 8px;
+}
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; align-items: center; }
 .reaction {
   display: inline-flex; gap: 4px; align-items: center; cursor: pointer;

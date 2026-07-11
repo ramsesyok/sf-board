@@ -70,7 +70,7 @@
 - `WebviewPanelSerializer` を登録し、VSCode再起動後にタブが復元されたら `state.channelId` から再初期化する(Webview 側で `vscode.setState({channelId})` を保持)。
 - パネルタイトルは現在のチャンネル名。`channel_renamed` 反映時にタイトルも更新する。
 - Webview オプション: `enableScripts: true`、`localResourceRoots` に **拡張の media ディレクトリと `chat-root/attachments` の両方**を指定する(添付表示のため。`chat.rootPath` 変更時はパネル再作成が必要な点に注意)。
-- CSP を必ず設定する: `default-src 'none'; img-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-...';`。外部オリジンは一切許可しない。
+- CSP を必ず設定する: `default-src 'none'; img-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; font-src data:; script-src 'nonce-...';`。外部オリジンは一切許可しない(`font-src data:` は KaTeX の内包フォント用で、data URI のみ=外部接続なし。§10)。
 
 ## 5. Host ⇔ Webview メッセージプロトコル
 
@@ -239,6 +239,9 @@ type WebviewMessage =
 - 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。添付画像のサムネイルはクリックでライトボックス(拡大表示)を開き、そこからダウンロード(保存ダイアログ + SHA-256 検証)できる(§6.5)。
 - コードハイライト: `highlight.js/lib/common`(common言語のみ)を Webview バンドルに同梱し、`markdown-it` の `highlight` オプションで適用。出力は `<span class="hljs-*">` で DOMPurify のホワイトリスト(span/class)を通過する。言語未指定/失敗時はプレーン表示。トークン色は VS Code のテーマ(`body.vscode-dark` / `body.vscode-light`)に追従する。
 - `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` で装飾する(表示は `@userId` のまま、hover で表示名)。自分宛は `mention-self` で強調。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
+- 数式(KaTeX): `$...$`(インライン)/ `$$...$$`(ブロック)/ ` ```math ` フェンスに対応。`@vscode/markdown-it-katex` でパースし、レンダラを上書きして**プレースホルダ span**(class + エスケープ済みテキストのみ)を出力→ DOMPurify 通過後に `katex.renderToString`(`trust:false`・`throwOnError:false`)で実描画する。KaTeX の CSS とフォントはビルド時に `dist/katex.css` へ**フォント(woff2)を data URI で内包**して同梱し、Webview は `<link>`(cspSource 経由)で読む。外部フォント参照は持たない。CSP に `font-src data:` を追加(§4)。
+- 図(mermaid): ` ```mermaid ` フェンスに対応。同様にプレースホルダ→ `mermaid.render`(`securityLevel:'strict'`・`startOnLoad:false`)で SVG を生成し差し込む。テーマは `body.vscode-dark`/`light` に追従。外部アイコン/CDN は使わない(`loadExternalDiagrams` 等は無効)。
+- KaTeX/mermaid の出力は複雑な span/SVG/inline style を含み厳格な DOMPurify を通せないが、いずれも自前で安全な HTML を生成する(KaTeX は trust:false、mermaid は strict)ため、**サニタイズ後**にプレースホルダへ差し込む方式とする。プレースホルダ自体は既存の DOMPurify ホワイトリスト(span/class/テキスト)を通過する。
 
 ## 11. ビルド・配布(VSIX / オフライン)
 
@@ -250,9 +253,10 @@ type WebviewMessage =
 
 ### 外部接続ゼロの検証チェックリスト(リリース時必須)
 
-- [ ] バンドル(`dist/*.js`)に `http.request` / `https.request` / `fetch(` / `XMLHttpRequest` / `WebSocket(` / `net.connect` の呼び出しが含まれないこと(grep で機械検証)
-- [ ] Webview の HTML/CSS に外部 URL 参照(`https://` を含む `src`/`href`/`@import`/`url(`)が無いこと。フォントはシステムフォント(`var(--vscode-font-family)`)のみ使用し、Web フォントを同梱・参照しないこと
-- [ ] CSP が `default-src 'none'` 基点で、許可オリジンが `${webview.cspSource}` のみであること
+- [ ] バンドル(`dist/*.js`)に**ネットワーク**呼び出し(`http.request` / `https.request` / `fetch(<引数>)` / `XMLHttpRequest` / `WebSocket(` / `net.connect` / 動的 `import(`)が含まれないこと(grep で機械検証)。
+  - 注: KaTeX の**字句解析メソッド `.fetch()`(引数なし)**は多数含まれるが、これはトークン取得用のメソッド名であり通信ではない。ネットワーク検出は「引数付き `fetch(` 」で判定する(例: `grep -oE "fetch\([^)]" dist/webview.js` が 0 件、`window/globalThis/self.fetch` が 0 件)。
+- [ ] Webview の HTML/CSS に外部 URL 参照(`https://` を含む `src`/`href`/`@import`/`url(`)が無いこと。UI フォントはシステムフォント(`var(--vscode-font-family)`)のみ。KaTeX の数式フォントは `dist/katex.css` に **data URI で内包**し、`url(fonts/...)` 等の外部参照を残さないこと(`grep url\(fonts/ dist/katex.css` が 0 件)。
+- [ ] CSP が `default-src 'none'` 基点で、`img-src`/`style-src` の許可オリジンは `${webview.cspSource}` のみ、`font-src` は `data:` のみ(KaTeX フォント用・外部なし)、`script-src` は nonce のみであること
 - [ ] `package.json` に update/telemetry 系の依存が入っていないこと
 - [ ] クリーン環境(ネットワーク遮断した VM)で VSIX をインストールし、送受信・添付・検索の主要操作を行ってもネットワークエラーが発生しない(=接続試行が無い)ことを確認
 
