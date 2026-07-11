@@ -237,7 +237,8 @@ type WebviewMessage =
 - 出力を `DOMPurify.sanitize()` に通す。許可タグ・属性はホワイトリスト方式。
 - リンク: `http(s)://` は表示するが、**クリックしてもブラウザは開かない**(エアギャップ方針。VS Code webview の自動遷移も防ぐため、レンダリング後に `href` を除去して `data-href` に退避する)。クリック時は Host が URL 全文をダイアログ(`vscode.window.showInformationMessage`、モーダル)で提示し、「リンクのコピー」選択時のみ `vscode.env.clipboard.writeText` でクリップボードへコピーする。`file://` 等その他プロトコルは対象外。
 - 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。添付画像のサムネイルはクリックでライトボックス(拡大表示)を開き、そこからダウンロード(保存ダイアログ + SHA-256 検証)できる(§6.5)。
-- コードハイライト: `highlight.js`(common言語のみのビルド)を同梱。失敗時はプレーン表示。
+- コードハイライト: `highlight.js/lib/common`(common言語のみ)を Webview バンドルに同梱し、`markdown-it` の `highlight` オプションで適用。出力は `<span class="hljs-*">` で DOMPurify のホワイトリスト(span/class)を通過する。言語未指定/失敗時はプレーン表示。トークン色は VS Code のテーマ(`body.vscode-dark` / `body.vscode-light`)に追従する。
+- `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` で装飾する(表示は `@userId` のまま、hover で表示名)。自分宛は `mention-self` で強調。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
 
 ## 11. ビルド・配布(VSIX / オフライン)
 
@@ -275,7 +276,7 @@ type WebviewMessage =
 
 ## 14. 将来拡張のための予約(実装しないが壊さない)
 
-- メンション: `body` 内の `@userId` は現時点でプレーンテキスト扱い。将来ハイライト+通知に拡張。
+- メンション: `body` 内の `@userId`(既知ユーザー)は **v0.0.4 でハイライト装飾を実装済み**(§10)。通知は引き続き対象外(将来拡張)。
 - DM: `channel.json` に `members?: string[]` フィールドを予約(現在は未使用・全公開チャンネル)。
 - 全チャンネル横断検索: ローカルキャッシュ(DESIGN.md §6)上へのインデックス追加で対応可能な構造を維持する。
 - アーカイブ: `channel_archived` イベント追加で対応可能(type 未知イベントは無視される前方互換性で担保済み)。

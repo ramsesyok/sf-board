@@ -154,8 +154,14 @@
         },
         "sfBoard.threadDisplay": {
           "type": "string",
-          "enum": ["inline", "thread"],
-          "enumDescriptions": ["%config.threadDisplay.inline%", "%config.threadDisplay.thread%"],
+          "enum": [
+            "inline",
+            "thread"
+          ],
+          "enumDescriptions": [
+            "%config.threadDisplay.inline%",
+            "%config.threadDisplay.thread%"
+          ],
           "default": "inline",
           "markdownDescription": "%config.threadDisplay%"
         },
@@ -178,6 +184,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.11",
+    "highlight.js": "^11.11.1",
     "markdown-it": "^14.3.0"
   }
 }
