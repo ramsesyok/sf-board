@@ -58,6 +58,16 @@ describe("store: atomicWriteFile(§4.2 tmp→rename)", () => {
     const entries = await fs.readdir(path.join(root, "sub"));
     expect(entries).toEqual(["a.json"]);
   });
+
+  it("rename 失敗時にも一時ファイルを残さない", async () => {
+    // 書き込み先を「空でないディレクトリ」にして rename(file→dir)を失敗させる。
+    const target = path.join(root, "sub2", "blocked");
+    await fs.mkdir(target, { recursive: true });
+    await fs.writeFile(path.join(target, "keep"), "x");
+    await expect(atomicWriteFile(target, "data")).rejects.toThrow();
+    const entries = await fs.readdir(path.join(root, "sub2"));
+    expect(entries.filter((e) => e.includes(".tmp."))).toEqual([]);
+  });
 });
 
 describe("store: appendEvent(§4.1 単一 write 追記)", () => {
