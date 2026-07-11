@@ -390,6 +390,43 @@ body {
 .msg-body th, .msg-body td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; }
 .msg-body a { color: var(--vscode-textLink-foreground); }
 .msg-deleted { color: var(--vscode-descriptionForeground); font-style: italic; }
+
+/* @メンション装飾(§14: ハイライトのみ)。既定は自分以外、mention-self は自分宛。 */
+.mention {
+  color: var(--vscode-textLink-foreground); font-weight: 600;
+  background: var(--vscode-textBlockQuote-background); border-radius: 3px; padding: 0 2px;
+}
+.mention-self {
+  color: var(--vscode-editorForeground, var(--vscode-foreground));
+  background: var(--vscode-editor-selectionHighlightBackground, rgba(255, 200, 0, 0.28));
+}
+
+/* シンタックスハイライト(highlight.js)。VS Code のテーマ(body.vscode-dark/light)に追従。
+   既定色はダーク系。body.vscode-light のときにライト系へ上書きする。 */
+.hljs { color: var(--vscode-editor-foreground, var(--vscode-foreground)); }
+.hljs-comment, .hljs-quote { color: #6a9955; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link,
+.hljs-meta, .hljs-tag, .hljs-name, .hljs-symbol, .hljs-bullet { color: #569cd6; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #ce9178; }
+.hljs-number, .hljs-deletion { color: #b5cea8; }
+.hljs-type, .hljs-class .hljs-title, .hljs-built_in, .hljs-title.class_ { color: #4ec9b0; }
+.hljs-function .hljs-title, .hljs-title, .hljs-title.function_ { color: #dcdcaa; }
+.hljs-variable, .hljs-attr, .hljs-attribute, .hljs-template-variable, .hljs-property { color: #9cdcfe; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: bold; }
+body.vscode-light .hljs-comment, body.vscode-light .hljs-quote { color: #008000; }
+body.vscode-light .hljs-keyword, body.vscode-light .hljs-selector-tag, body.vscode-light .hljs-literal,
+body.vscode-light .hljs-section, body.vscode-light .hljs-link, body.vscode-light .hljs-meta,
+body.vscode-light .hljs-tag, body.vscode-light .hljs-name, body.vscode-light .hljs-symbol,
+body.vscode-light .hljs-bullet { color: #0000ff; }
+body.vscode-light .hljs-string, body.vscode-light .hljs-regexp, body.vscode-light .hljs-addition { color: #a31515; }
+body.vscode-light .hljs-number, body.vscode-light .hljs-deletion { color: #098658; }
+body.vscode-light .hljs-type, body.vscode-light .hljs-class .hljs-title,
+body.vscode-light .hljs-built_in, body.vscode-light .hljs-title.class_ { color: #267f99; }
+body.vscode-light .hljs-function .hljs-title, body.vscode-light .hljs-title,
+body.vscode-light .hljs-title.function_ { color: #795e26; }
+body.vscode-light .hljs-variable, body.vscode-light .hljs-attr, body.vscode-light .hljs-attribute,
+body.vscode-light .hljs-template-variable, body.vscode-light .hljs-property { color: #001080; }
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; align-items: center; }
 .reaction {
   display: inline-flex; gap: 4px; align-items: center; cursor: pointer;

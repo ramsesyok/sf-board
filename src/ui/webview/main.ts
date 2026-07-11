@@ -6,6 +6,7 @@
 
 import MarkdownIt from "markdown-it";
 import DOMPurify, { type Config } from "dompurify";
+import hljs from "highlight.js/lib/common";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../../shared/protocol";
 import type { RenderedThread, MessageState } from "../../core/reducer";
 import type { UserProfile } from "../../shared/types";
@@ -19,6 +20,22 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+// コードフェンスのシンタックスハイライト(highlight.js common)。§10。
+// 出力は <span class="hljs-*"> で、DOMPurify のホワイトリスト(span/class)を通過する。
+md.set({
+  highlight: (str, lang): string => {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        const html = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value;
+        return `<pre class="hljs"><code>${html}</code></pre>`;
+      } catch {
+        /* フォールバックへ */
+      }
+    }
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
+  },
+});
 
 // DOMPurify ホワイトリスト(§10 有効記法)。
 const SANITIZE_OPTIONS: Config = {
@@ -343,6 +360,7 @@ function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
   body.className = "msg-body";
   body.innerHTML = renderMarkdown(p.body);
   neutralizeLinks(body);
+  decorateMentions(body);
   main.appendChild(body);
 
   if (p.state === "error") {
@@ -411,6 +429,7 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
   } else {
     body.innerHTML = renderMarkdown(msg.body);
     neutralizeLinks(body);
+    decorateMentions(body);
   }
   main.appendChild(body);
 
@@ -728,6 +747,48 @@ function neutralizeLinks(container: HTMLElement): void {
     a.classList.add("ext-link");
     if (!a.getAttribute("title")) a.setAttribute("title", href);
   }
+}
+
+// 本文中の @userId を装飾する(§14: ハイライトのみ・通知なし)。
+// 既知ユーザー(users に存在)のみ対象。表示は @userId のまま、hover(title)で表示名。
+// コード/リンク内は対象外。テキストノードを走査して安全に置換する。
+const MENTION_RE = /@([A-Za-z0-9_-]+)/g;
+function decorateMentions(container: HTMLElement): void {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node): number {
+      const parent = (node as Text).parentElement;
+      if (!parent || parent.closest("code, pre, a, .mention")) return NodeFilter.FILTER_REJECT;
+      return /@[A-Za-z0-9_-]+/.test(node.nodeValue ?? "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const targets: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n as Text);
+  for (const textNode of targets) replaceMentionsInTextNode(textNode);
+}
+
+function replaceMentionsInTextNode(textNode: Text): void {
+  const text = textNode.nodeValue ?? "";
+  MENTION_RE.lastIndex = 0;
+  const frag = document.createDocumentFragment();
+  let lastIndex = 0;
+  let matched = false;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_RE.exec(text)) !== null) {
+    const id = m[1];
+    const user = users[id];
+    if (!user) continue; // 既知ユーザーのみ装飾。未知の @token は素通し。
+    matched = true;
+    if (m.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, m.index)));
+    const span = document.createElement("span");
+    span.className = id === selfUserId ? "mention mention-self" : "mention";
+    span.textContent = `@${id}`;
+    span.title = user.displayName || id;
+    frag.appendChild(span);
+    lastIndex = m.index + m[0].length;
+  }
+  if (!matched) return;
+  if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+  textNode.parentNode?.replaceChild(frag, textNode);
 }
 
 // ---- ライトボックス(画像拡大表示) ----
