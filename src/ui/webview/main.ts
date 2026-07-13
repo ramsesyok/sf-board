@@ -13,6 +13,7 @@ import mermaid from "mermaid";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../../shared/protocol";
 import type { RenderedThread, MessageState } from "../../core/reducer";
 import type { UserProfile } from "../../shared/types";
+import { matchPathAt, findPathMatches } from "../../shared/pathLink";
 
 interface VsCodeApi {
   postMessage(msg: WebviewMessage): void;
@@ -62,6 +63,24 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   if (info === "math") return mathPlaceholder(tokens[idx].content, true);
   return prevFence ? prevFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
 };
+
+// ファイル/UNC パスのリンク化(§10)。UNC(\\host\...)は Markdown が先頭 \\ を \ に畳むため、
+// サニタイズ後の DOM 走査では復元できない。そこで生ソースに対しインラインルール(escape より前)で
+// 捕捉し、プレースホルダ span(path-src)を出力→サニタイズ後に activatePathLinks で .path-link 化する。
+// (Windows ドライブ / POSIX パスは Markdown を通っても壊れないため DOM 走査側で扱う。)
+md.inline.ruler.before("escape", "path_link", (state, silent) => {
+  if (state.src.charCodeAt(state.pos) !== 0x5c /* \ */) return false; // UNC は \ 始まり
+  const value = matchPathAt(state.src, state.pos);
+  if (!value) return false;
+  if (!silent) {
+    const token = state.push("path_link", "span", 0);
+    token.content = value;
+  }
+  state.pos += value.length;
+  return true;
+});
+md.renderer.rules.path_link = (tokens, idx) =>
+  `<span class="path-src">${md.utils.escapeHtml(tokens[idx].content)}</span>`;
 
 // mermaid 初期化(テーマは VS Code に追従、strict でスクリプト無効)。
 mermaid.initialize({
@@ -426,6 +445,7 @@ function createPendingEl(p: PendingMsg, isReply: boolean): HTMLElement {
   body.innerHTML = renderMarkdown(p.body);
   neutralizeLinks(body);
   decorateMentions(body);
+  activatePathLinks(body);
   void renderMathAndDiagrams(body);
   main.appendChild(body);
 
@@ -496,6 +516,7 @@ function createMessageEl(msg: MessageState, isReply: boolean): HTMLElement {
     body.innerHTML = renderMarkdown(msg.body);
     neutralizeLinks(body);
     decorateMentions(body);
+    activatePathLinks(body);
     void renderMathAndDiagrams(body);
   }
   main.appendChild(body);
@@ -858,6 +879,52 @@ function replaceMentionsInTextNode(textNode: Text): void {
   textNode.parentNode?.replaceChild(frag, textNode);
 }
 
+// 本文中のファイル/フォルダパスをクリック可能な .path-link にする(§10)。
+// data-path は Host へ渡す生パス。クリック時に openPath を委譲する。
+// UNC はインラインルールが出力した span.path-src を有効化し、Windows ドライブ / POSIX は
+// テキストノードを走査して包む(コード/リンク/既存装飾内は除外)。
+function activatePathLinks(container: HTMLElement): void {
+  for (const el of container.querySelectorAll<HTMLElement>("span.path-src")) {
+    const value = el.textContent ?? "";
+    el.classList.remove("path-src");
+    el.classList.add("path-link");
+    el.dataset.path = value;
+    if (!el.title) el.title = value;
+  }
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node): number {
+      const parent = (node as Text).parentElement;
+      if (!parent || parent.closest("code, pre, a, .mention, .path-link, .path-src, .math-src, .mermaid-src")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return findPathMatches(node.nodeValue ?? "").length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const targets: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n as Text);
+  for (const textNode of targets) replacePathsInTextNode(textNode);
+}
+
+function replacePathsInTextNode(textNode: Text): void {
+  const text = textNode.nodeValue ?? "";
+  const matches = findPathMatches(text);
+  if (matches.length === 0) return;
+  const frag = document.createDocumentFragment();
+  let last = 0;
+  for (const mm of matches) {
+    if (mm.start > last) frag.appendChild(document.createTextNode(text.slice(last, mm.start)));
+    const span = document.createElement("span");
+    span.className = "path-link";
+    span.textContent = mm.value;
+    span.dataset.path = mm.value;
+    span.title = mm.value;
+    frag.appendChild(span);
+    last = mm.end;
+  }
+  if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+  textNode.parentNode?.replaceChild(frag, textNode);
+}
+
 // ---- ライトボックス(画像拡大表示) ----
 let lightboxEl: HTMLElement | undefined;
 function openLightbox(ulid: string): void {
@@ -992,16 +1059,28 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   }
 });
 
-// 本文内リンクのクリックは Host へ委譲(ブラウザは開かず、コピー用ダイアログを表示)。
-// href は neutralizeLinks で data-href に退避済み(自動遷移防止)。
-messagesEl.addEventListener("click", (e) => {
-  const anchor = (e.target as HTMLElement).closest("a");
+// 本文内リンク/パスのクリックは Host へ委譲する。
+// - リンク(a): ブラウザは開かず、Host のコピー用ダイアログを表示(href は neutralizeLinks で退避済み)。
+// - パス(.path-link): Host が種別判定してフォルダは開く/ファイルは表示(§10)。data-path は生パス。
+// 本文はメインのタイムラインとスレッドペインの両方に描画されるため、双方に委譲ハンドラを付ける。
+function handleContentClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  const pathEl = target.closest<HTMLElement>(".path-link");
+  if (pathEl) {
+    e.preventDefault();
+    const p = pathEl.dataset.path;
+    if (p) postMsg({ kind: "openPath", path: p });
+    return;
+  }
+  const anchor = target.closest("a");
   if (anchor) {
     e.preventDefault();
     const href = anchor.getAttribute("data-href");
     if (href) postMsg({ kind: "openLink", href });
   }
-});
+}
+messagesEl.addEventListener("click", handleContentClick);
+threadBodyEl.addEventListener("click", handleContentClick);
 
 // 初期化要求。
 postMsg({ kind: "ready" });

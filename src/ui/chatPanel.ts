@@ -7,6 +7,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fsp from "fs/promises";
+import * as childProcess from "child_process";
 import type { ChatModel } from "../model/chatModel";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../shared/protocol";
 import { getStrings, pickLang } from "../shared/strings";
@@ -123,6 +124,9 @@ export class ChatPanel {
       case "openLink":
         await this.handleOpenLink(msg.href);
         break;
+      case "openPath":
+        await this.handleOpenPath(msg.path);
+        break;
     }
   }
 
@@ -184,6 +188,95 @@ export class ChatPanel {
       await vscode.env.clipboard.writeText(href);
       void vscode.window.showInformationMessage(hl("linkCopied"));
     }
+  }
+
+  /**
+   * 本文中のファイル/フォルダパスを開く(§10)。承認モデル:
+   *   - フォルダ → OS のファイルマネージャで中を開く(explorer/open/xdg-open)。
+   *   - ファイル → `revealFileInOS`(VS Code 組み込み・全 OS・関連付け不問・文字化けなし)で選択表示。
+   * いずれもローカル/共有フォルダの操作のみで外部通信はしない(child_process はネットワーク API ではない)。
+   * 種別判定は fs.stat。UNC は allowedUNCHosts 登録前提だが、万一 stat が失敗しても中断せず続行し、
+   * ローカルの ENOENT のみ「見つかりません」を出す。確認ダイアログには常に「パスをコピー」を併設する。
+   */
+  private async handleOpenPath(rawPath: string): Promise<void> {
+    const isUnc = /^[\\/]{2}/.test(rawPath);
+    let isDir: boolean | undefined;
+    try {
+      isDir = (await fsp.stat(rawPath)).isDirectory();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (!isUnc && code === "ENOENT") {
+        void vscode.window.showErrorMessage(hl("pathNotFound", rawPath));
+        return;
+      }
+      isDir = undefined; // 判定不能でも開けるので続行(reveal は種別不問)。
+    }
+
+    const copyLabel = hl("pathCopy");
+    const actionLabel = isDir === true ? hl("pathOpenFolder") : hl("pathRevealFile");
+    const confirm = vscode.workspace.getConfiguration("sfBoard").get<boolean>("confirmOpenPath", true);
+    if (confirm) {
+      const msgKey =
+        isDir === true ? "pathConfirmOpenFolder" : isDir === false ? "pathConfirmRevealFile" : "pathConfirmOpen";
+      const choice = await vscode.window.showWarningMessage(
+        hl(msgKey, rawPath),
+        { modal: true },
+        actionLabel,
+        copyLabel,
+      );
+      if (choice === copyLabel) {
+        await this.copyPath(rawPath);
+        return;
+      }
+      if (choice !== actionLabel) return; // キャンセル
+    }
+
+    if (isDir === true) {
+      this.openFolder(rawPath);
+    } else {
+      this.revealInFileManager(rawPath);
+    }
+  }
+
+  /** フォルダを OS のファイルマネージャで開く(中身を表示)。spawn 失敗時はコピーを提案。 */
+  private openFolder(target: string): void {
+    // 拡張ホストの PATH は絞られていることがあるため、Windows は explorer.exe をフルパスで起動する。
+    const cmd =
+      process.platform === "win32"
+        ? path.join(process.env.SystemRoot || process.env.windir || "C:\\Windows", "explorer.exe")
+        : process.platform === "darwin"
+          ? "open"
+          : "xdg-open";
+    let child: childProcess.ChildProcess;
+    try {
+      child = childProcess.spawn(cmd, [target], { detached: true, stdio: "ignore" });
+    } catch {
+      this.offerCopyOnFailure(target);
+      return;
+    }
+    // explorer.exe は成功時も非0終了することがあるため、exit code ではなく spawn エラーのみ拾う。
+    child.on("error", () => this.offerCopyOnFailure(target));
+    child.unref();
+  }
+
+  /** ファイル(または種別不明)を OS のファイルマネージャで選択表示する(VS Code 組み込み)。 */
+  private revealInFileManager(target: string): void {
+    void Promise.resolve(vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(target))).then(
+      undefined,
+      () => this.offerCopyOnFailure(target),
+    );
+  }
+
+  private offerCopyOnFailure(target: string): void {
+    const copyLabel = hl("pathCopy");
+    void vscode.window.showErrorMessage(hl("pathOpenFailed", target), copyLabel).then((c) => {
+      if (c === copyLabel) void this.copyPath(target);
+    });
+  }
+
+  private async copyPath(target: string): Promise<void> {
+    await vscode.env.clipboard.writeText(target);
+    void vscode.window.showInformationMessage(hl("pathCopied"));
   }
 
   private buildAttachmentInfos(): Record<string, AttachmentInfo> {
@@ -484,6 +577,7 @@ body.vscode-light .hljs-template-variable, body.vscode-light .hljs-property { co
 .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .attachment-image { max-width: 240px; max-height: 200px; border-radius: 4px; cursor: pointer; }
 .ext-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; }
+.path-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; word-break: break-all; }
 .lightbox {
   position: fixed; inset: 0; z-index: 100;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;

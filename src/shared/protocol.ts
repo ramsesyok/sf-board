@@ -64,4 +64,5 @@ export type WebviewMessage =
   | { kind: "pickAttachment"; requestId: string }
   | { kind: "openAttachment"; ulid: string }
   | { kind: "openLink"; href: string } // §10 リンク委譲
+  | { kind: "openPath"; path: string } // §10 ファイル/フォルダパスを開く
   | { kind: "renameChannel"; name: string };

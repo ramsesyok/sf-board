@@ -57,6 +57,16 @@ const en = {
   "uncUpdateFailed": "Failed to update security.allowedUNCHosts automatically: {0}. Please add the host manually in Settings.",
   "verifyOk": "Shared folder connection: OK",
   "verifyNg": "Shared folder connection: a problem was detected. See details.",
+  // Host 側(本文パスのオープン、§10)
+  "pathOpenFolder": "Open folder",
+  "pathRevealFile": "Reveal in file manager",
+  "pathCopy": "Copy path",
+  "pathConfirmOpenFolder": "Open this folder in the file manager?\n{0}",
+  "pathConfirmRevealFile": "Show this file in the file manager?\n{0}",
+  "pathConfirmOpen": "Open this path?\n{0}",
+  "pathNotFound": "Path not found: {0}",
+  "pathOpenFailed": "Could not open the path: {0}",
+  "pathCopied": "Path copied to the clipboard.",
 } as const;
 
 type StringKey = keyof typeof en;
@@ -110,6 +120,15 @@ const ja: Record<StringKey, string> = {
   "uncUpdateFailed": "security.allowedUNCHosts の自動更新に失敗しました: {0}。設定で手動追加してください。",
   "verifyOk": "共有フォルダ接続: 正常",
   "verifyNg": "共有フォルダ接続: 問題を検出しました。詳細を確認してください。",
+  "pathOpenFolder": "フォルダを開く",
+  "pathRevealFile": "ファイルマネージャで表示",
+  "pathCopy": "パスをコピー",
+  "pathConfirmOpenFolder": "このフォルダをファイルマネージャで開きますか?\n{0}",
+  "pathConfirmRevealFile": "このファイルをファイルマネージャで表示しますか?\n{0}",
+  "pathConfirmOpen": "このパスを開きますか?\n{0}",
+  "pathNotFound": "パスが見つかりません: {0}",
+  "pathOpenFailed": "パスを開けませんでした: {0}",
+  "pathCopied": "パスをクリップボードにコピーしました。",
 };
 
 const bundles: Record<Lang, Record<StringKey, string>> = { en, ja };

@@ -108,6 +108,7 @@ type WebviewMessage =
   | { kind: "pickAttachment"; requestId: string }            // Host側でファイルダイアログ
   | { kind: "openAttachment"; ulid: string }                 // 既定アプリ/保存ダイアログ
   | { kind: "openLink"; href: string }                       // §10 リンク委譲(Phase 3 追補)
+  | { kind: "openPath"; path: string }                       // §10 ファイル/フォルダパスを開く(v0.0.6 追補)
   | { kind: "renameChannel"; name: string };
 ```
 
@@ -207,6 +208,7 @@ type WebviewMessage =
 | `sfBoard.imageInlinePreview` | 画像のインライン表示 | true |
 | `sfBoard.threadDisplay` | 返信の表示方式 `inline` / `thread`(§6.6) | inline |
 | `sfBoard.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
+| `sfBoard.confirmOpenPath` | 本文内のパスを開く前に確認する(§10)。有効時は確認に「パスをコピー」も併設 | true |
 
 設定キーの接頭辞は `sfBoard.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
 
@@ -243,6 +245,9 @@ type WebviewMessage =
 - 有効記法: 見出し、強調、リスト、引用、コードブロック(フェンス)、インラインコード、テーブル、リンク、水平線。
 - 出力を `DOMPurify.sanitize()` に通す。許可タグ・属性はホワイトリスト方式。
 - リンク: `http(s)://` は表示するが、**クリックしてもブラウザは開かない**(エアギャップ方針。VS Code webview の自動遷移も防ぐため、レンダリング後に `href` を除去して `data-href` に退避する)。クリック時は Host が URL 全文をダイアログ(`vscode.window.showInformationMessage`、モーダル)で提示し、「リンクのコピー」選択時のみ `vscode.env.clipboard.writeText` でクリップボードへコピーする。`file://` 等その他プロトコルは対象外。
+- ファイル/フォルダパスのリンク化(v0.0.6): 本文中の **UNC(`\\host\share\...`)/ Windows ドライブ(`C:\...` / `C:/...`)/ POSIX 絶対(`/dir/sub/...`)** を検出してクリック可能にする。相対パスは対象外。検出ロジックは vscode 非依存の `shared/pathLink.ts`(`matchPathAt` / `findPathMatches`)に置き単体テストする。誤検出対策として、直前が英数字なら URL スキーム(`http://`・`file://C:/...`)を除外し、POSIX は「行頭/空白/開き括弧」の直後かつ **2 セグメント以上**に限定(`and/or`・`24/7`・`12:30` を除外)、末尾の句読点・閉じ括弧を除去(末尾スラッシュは保持)、`"..."`(エクスプローラの「パスのコピー」)は囲みを除いて空白入りでも 1 塊で拾う。
+  - レンダリング: **Markdown は先頭 `\\` を `\` に畳む**ため、UNC は `markdown-it` の**インラインルール(`escape` より前)**で生ソースから捕捉しプレースホルダ span(`path-src`)を出力→サニタイズ後に `.path-link` へ変換する。Windows ドライブ / POSIX は Markdown を通っても壊れないため、**サニタイズ後の DOM テキスト走査**で `.path-link` に包む(`code,pre,a,.mention,.path-link,.path-src,.math-src,.mermaid-src` は除外)。生パスは `data-path` に持つ。
+  - クリック時: Host が `openPath` を受け、`fs.stat` で種別判定し、設定 `sfBoard.confirmOpenPath`(既定 `true`)が有効なら確認ダイアログ(「開く/表示」+「パスをコピー」)を挟む。**フォルダは OS のファイルマネージャで中を開く**(win32 `explorer.exe` / darwin `open` / linux `xdg-open` へ `child_process.spawn`、引数配列で Unicode 安全)、**ファイルは `vscode.commands.executeCommand('revealFileInOS', Uri.file(path))`**(VS Code 組み込み・全 OS・**関連付け不問・文字化けなし**)でファイルマネージャに選択表示する。UNC は `allowedUNCHosts` 登録前提だが、万一 `fs.stat` が失敗しても中断せず開き(種別不明時は reveal)、ローカルの `ENOENT` のみ「見つかりません」を表示する。開く操作が失敗した場合は「パスをコピー」を提案する(安全弁)。いずれもローカル/共有フォルダの操作のみで**外部通信は行わない**(`child_process` はネットワーク API ではない)。※ ファイルを「既定アプリで開く」方式(`Start-Process`・`openExternal(file:)`)は、関連付けの無い拡張子で無反応・日本語パス破損・OS 差といった不安定さがあるため採用しない。
 - 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。添付画像のサムネイルはクリックでライトボックス(拡大表示)を開き、そこからダウンロード(保存ダイアログ + SHA-256 検証)できる(§6.5)。
 - コードハイライト: `highlight.js/lib/common`(common言語のみ)を Webview バンドルに同梱し、`markdown-it` の `highlight` オプションで適用。出力は `<span class="hljs-*">` で DOMPurify のホワイトリスト(span/class)を通過する。言語未指定/失敗時はプレーン表示。トークン色は VS Code のテーマ(`body.vscode-dark` / `body.vscode-light`)に追従する。
 - `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` で装飾する(表示は `@userId` のまま、hover で表示名)。自分宛は `mention-self` で強調。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
