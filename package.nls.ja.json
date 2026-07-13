@@ -19,5 +19,6 @@
   "config.threadDisplay": "返信の表示方式。タイムライン内に表示するか、右側の Slack 風スレッドペインに表示するか。",
   "config.threadDisplay.inline": "返信を親メッセージの下(タイムライン内)に表示します。",
   "config.threadDisplay.thread": "タイムラインには「N件の返信」サマリを表示し、返信は右側のスレッドペインで開きます。",
-  "config.diagnostics.enabled": "同期・更新検知の診断ログを「SF Board」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。"
+  "config.diagnostics.enabled": "同期・更新検知の診断ログを「SF Board」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。",
+  "config.confirmOpenPath": "メッセージ内に書かれたファイル/フォルダパスを開く前に確認ダイアログを表示します。有効時はダイアログに「パスをコピー」も表示されます。"
 }

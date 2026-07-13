@@ -19,5 +19,6 @@
   "config.threadDisplay": "How thread replies are shown: inline in the timeline, or in a Slack-style thread pane on the right.",
   "config.threadDisplay.inline": "Show replies inline under the parent message in the timeline.",
   "config.threadDisplay.thread": "Show a \"N replies\" summary in the timeline and open replies in a thread pane on the right.",
-  "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"SF Board\" output channel (metadata only; no message content). Disabled by default."
+  "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"SF Board\" output channel (metadata only; no message content). Disabled by default.",
+  "config.confirmOpenPath": "Show a confirmation dialog before opening a file/folder path written in a message. When on, the dialog also offers \"Copy path\"."
 }
