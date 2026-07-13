@@ -2,7 +2,7 @@
   "name": "sf-board",
   "displayName": "SF Board",
   "description": "エアギャップ環境向けサーバレス・ボード(共有ネットワークフォルダのみで動作)",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "airgap",
   "private": true,
   "license": "UNLICENSED",
