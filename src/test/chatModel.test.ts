@@ -152,6 +152,54 @@ describe("ChatModel: 未読管理(§7)", () => {
   });
 });
 
+describe("ChatModel: 新着通知用の照会(§7.1)", () => {
+  async function postAs(channelId: string, author: string, id: string, body: string): Promise<void> {
+    await appendEvent(root, channelId, author, { id, type: "message_created", ts: "t", author, body });
+    await writeCursor(root, author, { lastEventId: id, lastChannelId: channelId, updatedAt: "t" });
+  }
+
+  it("getIncomingMessagesAfter は自分以外・基準より新しいものを昇順で返す", async () => {
+    const id = await model.createChannel("general");
+    await postAs(id, "bob", "0000000000000000000000B0B1", "b1");
+    await postAs(id, "carol", "0000000000000000000000CA01", "c1");
+    await postAs(id, "bob", "0000000000000000000000B0B2", "b2");
+    await model.reconcileAll();
+    await model.sendMessage(id, "mine"); // 自分の投稿は含めない。
+
+    const all = model.getIncomingMessagesAfter(id, "");
+    expect(all.map((m) => m.body)).toEqual(["b1", "b2", "c1"]);
+    const after = model.getIncomingMessagesAfter(id, "0000000000000000000000B0B1");
+    expect(after.map((m) => m.body)).toEqual(["b2", "c1"]);
+    expect(model.getLatestEventId(id)).toBe(
+      model.getChannelView(id)!.threads.at(-1)!.parent.id, // 自分の投稿(最新 ULID)。
+    );
+  });
+
+  it("getLoadedSummaries と findChannelWithLatestUnread が未読を反映する", async () => {
+    const cache = new LocalCache(path.join(root, "lc.json"));
+    await cache.load();
+    model.setLocalCache(cache);
+
+    const a = await model.createChannel("alpha");
+    const b = await model.createChannel("beta");
+    await model.listChannels(); // 既読マーカーを初期化。
+    expect(model.findChannelWithLatestUnread()).toBeUndefined();
+
+    await postAs(a, "bob", "0000000000000000000000AAA2", "later");
+    await postAs(b, "bob", "0000000000000000000000AAA1", "earlier");
+    await model.reconcileAll();
+
+    expect(model.getLoadedSummaries()).toEqual([
+      { id: a, name: "alpha", unread: 1 },
+      { id: b, name: "beta", unread: 1 },
+    ]);
+    expect(model.findChannelWithLatestUnread()).toBe(a);
+
+    await model.markRead(a);
+    expect(model.findChannelWithLatestUnread()).toBe(b);
+  });
+});
+
 describe("ChatModel: 送信キューのフラッシュ(§8)", () => {
   it("キュー済みイベントを共有フォルダへ書き出し、キューが空になる", async () => {
     const cache = new LocalCache(path.join(root, "lc.json"));

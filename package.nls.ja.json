@@ -20,5 +20,11 @@
   "config.threadDisplay.inline": "返信を親メッセージの下(タイムライン内)に表示します。",
   "config.threadDisplay.thread": "タイムラインには「N件の返信」サマリを表示し、返信は右側のスレッドペインで開きます。",
   "config.diagnostics.enabled": "同期・更新検知の診断ログを「SF Board」出力チャネルに記録します(メタデータのみ・メッセージ本文は含みません)。既定は無効。",
-  "config.confirmOpenPath": "メッセージ内に書かれたファイル/フォルダパスを開く前に確認ダイアログを表示します。有効時はダイアログに「パスをコピー」も表示されます。"
+  "config.confirmOpenPath": "メッセージ内に書かれたファイル/フォルダパスを開く前に確認ダイアログを表示します。有効時はダイアログに「パスをコピー」も表示されます。",
+  "command.openUnread": "未読のチャンネルを開く",
+  "config.notify.statusBar": "ステータスバーに未読メッセージ数を表示します。",
+  "config.notify.popup": "他の人の新着メッセージを VS Code 内のポップアップで通知します。",
+  "config.notify.popup.off": "ポップアップ通知をしません(未読数はバッジとステータスバーに表示されます)。",
+  "config.notify.popup.all": "すべてのチャンネルの新着をポップアップで通知します(同じチャンネルは 30 秒に 1 回まで)。",
+  "viewsWelcome.setup": "共有フォルダがまだ設定されていません。\n[初期設定](command:sfBoard.setup)"
 }

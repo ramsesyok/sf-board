@@ -9,6 +9,7 @@ import { SyncEngine } from "./core/sync";
 import { LocalCache } from "./core/localCache";
 import { ChannelTreeProvider, ChannelItem } from "./ui/channelTree";
 import { PanelManager } from "./ui/panelManager";
+import { Notifier, type NotifyConfig } from "./ui/notifier";
 import { CHANNEL_VIEW_TYPE } from "./ui/chatPanel";
 import {
   OPEN_CHANNEL_COMMAND,
@@ -18,9 +19,10 @@ import {
   SETUP_COMMAND,
   SHOW_DIAGNOSTICS_COMMAND,
   VERIFY_CONNECTION_COMMAND,
+  OPEN_UNREAD_COMMAND,
   CHANNELS_VIEW_ID,
 } from "./ui/commandIds";
-import { hl } from "./host/hostL10n";
+import { hl, hlSafe } from "./host/hostL10n";
 import { OutputChannelDiagnosticsLogger } from "./host/diagnosticsLogger";
 import type { DiagnosticsLogger } from "./core/diagnostics";
 import { parseUncHost, probeSharedFolder } from "./host/connectionCheck";
@@ -33,12 +35,15 @@ let diagnosticsLogger: DiagnosticsLogger | undefined;
 interface Runtime {
   model: ChatModel;
   sync: SyncEngine;
-  tree: ChannelTreeProvider;
   panels: PanelManager;
   disposables: vscode.Disposable[];
 }
 
 let runtime: Runtime | undefined;
+
+/** チャンネル一覧の TreeView。activate で 1 度だけ生成し、再初期化をまたいで保持する(§7.1 のバッジ用)。 */
+let tree: ChannelTreeProvider | undefined;
+let treeView: vscode.TreeView<ChannelItem> | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // 同期診断ログの出力チャネル(LogOutputChannel)。診断有効時のみ書き込む。
@@ -48,6 +53,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logChannel,
     () => vscode.workspace.getConfiguration(CONFIG_SECTION).get<boolean>("diagnostics.enabled") ?? false,
   );
+
+  tree = new ChannelTreeProvider(() => runtime?.model);
+  treeView = vscode.window.createTreeView(CHANNELS_VIEW_ID, { treeDataProvider: tree });
+  context.subscriptions.push(treeView);
 
   // コマンドは常時登録する(setup は rootPath 未設定でも使えるように)。
   context.subscriptions.push(
@@ -59,8 +68,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(RENAME_CHANNEL_COMMAND, (item?: ChannelItem) => runRenameChannel(item)),
     vscode.commands.registerCommand(REFRESH_COMMAND, () => {
       void runtime?.sync.checkNow();
-      runtime?.tree.refresh();
+      tree?.refresh();
     }),
+    vscode.commands.registerCommand(OPEN_UNREAD_COMMAND, () => runOpenUnread()),
     vscode.commands.registerCommand(SHOW_DIAGNOSTICS_COMMAND, () => logChannel.show()),
     vscode.commands.registerCommand(VERIFY_CONNECTION_COMMAND, () => runVerifyConnection()),
   );
@@ -92,7 +102,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  await reinitialize(context);
+  // 起動時アクティベート(onStartupFinished)で rootPath 未設定なら警告せず待機する(§7.1)。
+  // 未設定時はビューに viewsWelcome の「初期設定」ボタンが出る。
+  await reinitialize(context, { quietIfUnconfigured: true });
 }
 
 // 再初期化が必要な設定キー(表示系: threadDisplay / attachmentMaxBytes /
@@ -148,12 +160,16 @@ function teardown(): void {
   runtime = undefined;
 }
 
-async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
+async function reinitialize(
+  context: vscode.ExtensionContext,
+  options: { quietIfUnconfigured?: boolean } = {},
+): Promise<void> {
   teardown();
+  tree?.refresh();
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const rootPath = (config.get<string>("rootPath") ?? "").trim();
   if (!rootPath) {
-    void vscode.window.showWarningMessage(hl("rootPathNotConfigured"));
+    if (!options.quietIfUnconfigured) void vscode.window.showWarningMessage(hl("rootPathNotConfigured"));
     return;
   }
 
@@ -177,14 +193,13 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? `${(err as NodeJS.ErrnoException).code ?? ""} ${err.message}`.trim() : String(err);
     void vscode.window
-      .showErrorMessage(hl("rootPathUnreachable", detail), hl("verifyConnectionButton"))
+      .showErrorMessage(hlSafe("rootPathUnreachable", detail), hl("verifyConnectionButton"))
       .then((choice) => {
         if (choice === hl("verifyConnectionButton")) void runVerifyConnection();
       });
     return;
   }
 
-  const tree = new ChannelTreeProvider(model);
   const panels = new PanelManager(context.extensionUri, model, rootPath, () => {
     const c = vscode.workspace.getConfiguration(CONFIG_SECTION);
     return {
@@ -207,14 +222,44 @@ async function reinitialize(context: vscode.ExtensionContext): Promise<void> {
   });
 
   const disposables: vscode.Disposable[] = [];
-  disposables.push(vscode.window.registerTreeDataProvider(CHANNELS_VIEW_ID, tree));
-  disposables.push(model.onChannelsChanged(() => tree.refresh()));
+  disposables.push(model.onChannelsChanged(() => tree?.refresh()));
 
   await sync.start();
-  runtime = { model, sync, tree, panels, disposables };
+  runtime = { model, sync, panels, disposables };
 
   await model.flushQueue(); // 起動時に未送信分があれば送る。
-  tree.refresh();
+
+  // ビューを開いていなくても未読数を出せるよう、全チャンネルを読み込んでから通知を開始する(§7.1)。
+  try {
+    await model.listChannels();
+  } catch (err) {
+    console.error("[sfBoard] listChannels failed", err);
+  }
+  if (treeView) {
+    const notifier = new Notifier(model, panels, treeView, readNotifyConfig);
+    disposables.push(notifier);
+    notifier.prime();
+  }
+  tree?.refresh();
+}
+
+function readNotifyConfig(): NotifyConfig {
+  const c = vscode.workspace.getConfiguration(CONFIG_SECTION);
+  return {
+    statusBar: c.get<boolean>("notify.statusBar") ?? true,
+    popup: c.get<string>("notify.popup") === "all" ? "all" : "off",
+  };
+}
+
+/** 最新の未読メッセージを持つチャンネルを開く(ステータスバーのクリック、§7.1)。 */
+async function runOpenUnread(): Promise<void> {
+  if (!runtime) return;
+  const channelId = runtime.model.findChannelWithLatestUnread();
+  if (channelId) {
+    await runtime.panels.open(channelId);
+  } else {
+    void vscode.window.showInformationMessage(hl("noUnread"));
+  }
 }
 
 function resolveUserId(configured: string | undefined): string {
@@ -247,7 +292,7 @@ async function handleUncPermissionIfNeeded(rootPath: string): Promise<boolean> {
   if (!status.isUnc || status.allowed || !status.host) return false;
 
   const addLabel = hl("uncAddAndReload");
-  const choice = await vscode.window.showWarningMessage(hl("uncNotAllowed", status.host), { modal: true }, addLabel);
+  const choice = await vscode.window.showWarningMessage(hlSafe("uncNotAllowed", status.host), { modal: true }, addLabel);
   if (choice !== addLabel) {
     void vscode.window.showWarningMessage(hl("uncDeclined"));
     return true; // 未許可のまま init に進んでも失敗するので中断。
@@ -260,7 +305,7 @@ async function handleUncPermissionIfNeeded(rootPath: string): Promise<boolean> {
     }
     await vscode.commands.executeCommand("workbench.action.reloadWindow");
   } catch (err) {
-    void vscode.window.showErrorMessage(hl("uncUpdateFailed", err instanceof Error ? err.message : String(err)));
+    void vscode.window.showErrorMessage(hlSafe("uncUpdateFailed", err instanceof Error ? err.message : String(err)));
   }
   return true;
 }
@@ -334,7 +379,7 @@ async function runCreateChannel(): Promise<void> {
   });
   if (!name || !name.trim()) return;
   const channelId = await runtime.model.createChannel(name.trim());
-  runtime.tree.refresh();
+  tree?.refresh();
   await runtime.panels.open(channelId);
 }
 
@@ -348,5 +393,5 @@ async function runRenameChannel(item?: ChannelItem): Promise<void> {
   });
   if (!name || !name.trim()) return;
   await runtime.model.renameChannel(item.channelId, name.trim());
-  runtime.tree.refresh();
+  tree?.refresh();
 }

@@ -15,6 +15,7 @@
   "main": "./dist/extension.js",
   "l10n": "./l10n",
   "activationEvents": [
+    "onStartupFinished",
     "onView:sfBoardChannels"
   ],
   "scripts": {
@@ -80,6 +81,11 @@
       {
         "command": "sfBoard.verifyConnection",
         "title": "%command.verifyConnection%",
+        "category": "SF Board"
+      },
+      {
+        "command": "sfBoard.openUnread",
+        "title": "%command.openUnread%",
         "category": "SF Board"
       }
     ],
@@ -179,9 +185,34 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.confirmOpenPath%"
+        },
+        "sfBoard.notify.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%config.notify.statusBar%"
+        },
+        "sfBoard.notify.popup": {
+          "type": "string",
+          "enum": [
+            "off",
+            "all"
+          ],
+          "enumDescriptions": [
+            "%config.notify.popup.off%",
+            "%config.notify.popup.all%"
+          ],
+          "default": "off",
+          "markdownDescription": "%config.notify.popup%"
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "sfBoardChannels",
+        "contents": "%viewsWelcome.setup%",
+        "when": "!config.sfBoard.rootPath"
+      }
+    ]
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",

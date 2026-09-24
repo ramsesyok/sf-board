@@ -6,5 +6,6 @@ export const REFRESH_COMMAND = "sfBoard.refresh";
 export const SETUP_COMMAND = "sfBoard.setup";
 export const SHOW_DIAGNOSTICS_COMMAND = "sfBoard.showDiagnostics";
 export const VERIFY_CONNECTION_COMMAND = "sfBoard.verifyConnection";
+export const OPEN_UNREAD_COMMAND = "sfBoard.openUnread";
 
 export const CHANNELS_VIEW_ID = "sfBoardChannels";

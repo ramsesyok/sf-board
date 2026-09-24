@@ -1,5 +1,6 @@
 // ChannelTreeProvider: サイドバーのチャンネル一覧。DESIGN_EXTENSION.md §7。
-// Phase 2 は一覧表示のみ(未読バッジは Phase 4)。
+// TreeView は activate 時に 1 度だけ生成し、再初期化をまたいで保持する(§7.1 のバッジ用)。
+// ChatModel は再初期化で差し替わるため getModel で都度参照する(未初期化なら空)。
 
 import * as vscode from "vscode";
 import type { ChatModel, ChannelSummary } from "../model/chatModel";
@@ -29,7 +30,7 @@ export class ChannelTreeProvider implements vscode.TreeDataProvider<ChannelItem>
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.onDidChangeEmitter.event;
 
-  constructor(private readonly model: ChatModel) {}
+  constructor(private readonly getModel: () => ChatModel | undefined) {}
 
   refresh(): void {
     this.onDidChangeEmitter.fire();
@@ -40,9 +41,11 @@ export class ChannelTreeProvider implements vscode.TreeDataProvider<ChannelItem>
   }
 
   async getChildren(): Promise<ChannelItem[]> {
+    const model = this.getModel();
+    if (!model) return [];
     let channels: ChannelSummary[];
     try {
-      channels = await this.model.listChannels();
+      channels = await model.listChannels();
     } catch {
       return [];
     }

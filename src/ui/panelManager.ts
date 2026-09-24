@@ -3,6 +3,7 @@
 
 import * as vscode from "vscode";
 import type { ChatModel } from "../model/chatModel";
+import { neutralizeNotificationLinks } from "../shared/notificationText";
 import { ChatPanel, CHANNEL_VIEW_TYPE, type ChatPanelDeps } from "./chatPanel";
 
 export class PanelManager {
@@ -24,7 +25,7 @@ export class PanelManager {
     }
     const loaded = await this.model.loadChannel(channelId);
     if (!loaded) {
-      void vscode.window.showErrorMessage(`Channel not found: ${channelId}`);
+      void vscode.window.showErrorMessage(`Channel not found: ${neutralizeNotificationLinks(channelId)}`);
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -68,6 +69,11 @@ export class PanelManager {
     );
     this.panels.set(channelId, chatPanel);
     chatPanel.onDidDispose(() => this.panels.delete(channelId));
+  }
+
+  /** 当該チャンネルのパネルがアクティブか(新着ポップアップの抑止用、§7.1)。 */
+  isActive(channelId: string): boolean {
+    return this.panels.get(channelId)?.active ?? false;
   }
 
   dispose(): void {
