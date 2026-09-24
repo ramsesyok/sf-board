@@ -207,7 +207,7 @@ export async function readUserProfile(
 /** users/ 配下の全プロフィールを読み込む(userId → profile)。 */
 export async function readAllUserProfiles(rootPath: string): Promise<Record<string, UserProfile>> {
   const dir = path.join(rootPath, "users");
-  const out: Record<string, UserProfile> = {};
+  const out: Record<string, UserProfile> = Object.create(null);
   let entries: string[];
   try {
     entries = await fsp.readdir(dir);
@@ -388,7 +388,7 @@ export async function listAttachments(
   channelId: Ulid,
 ): Promise<Record<Ulid, StoredAttachment>> {
   const base = channelAttachmentsDir(rootPath, channelId);
-  const out: Record<Ulid, StoredAttachment> = {};
+  const out: Record<Ulid, StoredAttachment> = Object.create(null);
   let months: string[];
   try {
     months = await fsp.readdir(base);
@@ -418,6 +418,7 @@ export async function listAttachments(
 
 /** blob の SHA-256 が期待値と一致するか検証する(保存時に使用)。DESIGN.md §4.3。 */
 export async function verifyAttachment(blobPath: string, expectedSha256: string): Promise<boolean> {
-  const data = await fsp.readFile(blobPath);
-  return sha256Hex(data) === expectedSha256;
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(blobPath)) hash.update(chunk);
+  return hash.digest("hex") === expectedSha256;
 }

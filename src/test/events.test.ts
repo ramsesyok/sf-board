@@ -8,8 +8,8 @@ import {
   type MessageCreatedEvent,
 } from "../core/events";
 
-const U1 = "01111111111111111111111111";
-const U2 = "02222222222222222222222222";
+const U1 = "00000000001111111111111111";
+const U2 = "00000000002222222222222222";
 
 const created: MessageCreatedEvent = {
   id: U1,
@@ -68,6 +68,12 @@ describe("events: 不正入力の扱い(DESIGN.md §8)", () => {
     expect(parseEventLine(JSON.stringify({ id: U1, type: "message_created", ts: "t", author: "a" }))).toBeNull(); // body 無し
     expect(parseEventLine(JSON.stringify({ id: U1, type: "message_edited", ts: "t", author: "a", targetId: "bad", body: "x" }))).toBeNull();
     expect(parseEventLine(JSON.stringify({ id: U1, type: "reaction_added", ts: "t", author: "a", targetId: U2, emoji: "" }))).toBeNull();
+  });
+
+  it("最大 ULID のイベントは読み込まず、後続の正常イベントを残す", () => {
+    const poisoned = { ...created, id: "Z".repeat(26) };
+    expect(parseEventLine(JSON.stringify(poisoned))).toBeNull();
+    expect(parseEventLines([JSON.stringify(poisoned), serializeEvent(created)].join("\n"))).toEqual([created]);
   });
 
   it("parseEventLines は不正行をスキップして継続する", () => {

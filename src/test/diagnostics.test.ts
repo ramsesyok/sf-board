@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { SyncEngine } from "../core/sync";
 import { ChatModel } from "../model/chatModel";
-import { LocalCache } from "../core/localCache";
+import { LocalCache, queueOrigin } from "../core/localCache";
 import { writeCursor, makeTempRoot, initWorkspace } from "../core/store";
 import type { DiagLevel, DiagnosticsLogger } from "../core/diagnostics";
 import type { ChatEvent } from "../core/events";
@@ -91,7 +91,7 @@ describe("diagnostics: ChatModel のログ", () => {
       author: "alice",
       body: "x",
     };
-    await cache.enqueue({ requestId: queued.id, channelId: id, event: queued });
+    await cache.enqueue({ requestId: queued.id, channelId: id, event: queued, origin: queueOrigin(root, "alice") });
     await model.flushQueue();
 
     const flush = fake.find("queue.flush");

@@ -6,7 +6,8 @@ import * as os from "os";
 import * as path from "path";
 import { ChatModel } from "./model/chatModel";
 import { SyncEngine } from "./core/sync";
-import { LocalCache } from "./core/localCache";
+import { LocalCache, queueOrigin } from "./core/localCache";
+import { readChannelMeta } from "./core/store";
 import { ChannelTreeProvider, ChannelItem } from "./ui/channelTree";
 import { PanelManager } from "./ui/panelManager";
 import { Notifier, type NotifyConfig } from "./ui/notifier";
@@ -186,6 +187,30 @@ async function reinitialize(
   // ローカルキャッシュ(未読・送信キュー)を globalStorage に置く(DESIGN.md §6)。
   const cache = new LocalCache(path.join(context.globalStorageUri.fsPath, "localCache.json"));
   await cache.load();
+  const legacyItems = cache.getLegacyQueue();
+  if (legacyItems.length > 0) {
+    const matchingIds: string[] = [];
+    for (const item of legacyItems) {
+      if (item.event?.author !== selfUserId) continue;
+      try {
+        const channel = await readChannelMeta(rootPath, item.channelId);
+        if (channel?.id === item.channelId) matchingIds.push(item.requestId);
+      } catch {
+        // 送信先を確認できない項目はキューに残す。
+      }
+    }
+    if (matchingIds.length === 0) {
+      void vscode.window.showWarningMessage(hl("legacyQueueNoMatch", String(legacyItems.length)));
+    } else {
+      const sendLabel = hl("legacyQueueUseCurrent");
+      const choice = await vscode.window.showWarningMessage(
+        hlSafe("legacyQueuePrompt", String(matchingIds.length), String(legacyItems.length), rootPath, selfUserId),
+        { modal: true },
+        sendLabel,
+      );
+      if (choice === sendLabel) await cache.claimLegacyQueue(queueOrigin(rootPath, selfUserId), matchingIds);
+    }
+  }
   model.setLocalCache(cache);
 
   try {
@@ -214,7 +239,7 @@ async function reinitialize(
     reconcileMs: (config.get<number>("poll.reconcileSec") ?? 90) * 1000,
     fallbackMs: (config.get<number>("poll.fallbackSec") ?? 4) * 1000,
     watchEnabled: config.get<boolean>("watch.enabled") ?? true,
-    onChange: () => void model.reconcileAll(),
+    onChange: () => model.reconcileAll(),
     isActive: () => vscode.window.state.focused,
     onError: (e) => console.error("[sfBoard] sync error", e),
     onModeChange: (mode) => console.info(`[sfBoard] sync mode: ${mode}`),

@@ -128,7 +128,12 @@ export class SyncEngine {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    this.prev = await snapshotCursors(this.options.rootPath);
+    try {
+      this.prev = await snapshotCursors(this.options.rootPath);
+    } catch (err) {
+      this.running = false;
+      throw err;
+    }
     this.logger.log("info", "sync.start", {
       watchEnabled: this.options.watchEnabled,
       reconcileMs: this.options.reconcileMs,
@@ -185,6 +190,7 @@ export class SyncEngine {
   }
 
   private onWatchEvent(): void {
+    if (!this.running) return;
     this.watchNotifiedThisCycle = true;
     this.logger.log("debug", "watch.notify");
     // 300ms デバウンス(§5.2)。通知内容は使わず、後で cursors を読み直す。
@@ -272,6 +278,7 @@ export class SyncEngine {
 
   // ---- 共通: 照合実行(直列化) ----
   private async doCheck(source: string): Promise<boolean> {
+    if (!this.running && source !== "manual") return false;
     if (this.checking) {
       this.rerunRequested = true;
       return false;
@@ -280,8 +287,8 @@ export class SyncEngine {
     let changedAny = false;
     try {
       const next = await snapshotCursors(this.options.rootPath);
+      if (!this.running && source !== "manual") return false;
       const changed = diffCursors(this.prev, next);
-      this.prev = next;
       if (changed.length > 0) {
         changedAny = true;
         this.logger.log("info", "change.detected", {
@@ -291,13 +298,15 @@ export class SyncEngine {
         });
         await this.options.onChange(changed);
       }
+      // 取り込み失敗時は次回照合で同じ変更を再試行する。
+      this.prev = next;
     } catch (err) {
       this.options.onError?.(err);
       this.logger.log("error", "check.error", { source, error: errString(err) });
     } finally {
       this.checking = false;
     }
-    if (this.rerunRequested) {
+    if ((this.running || source === "manual") && this.rerunRequested) {
       this.rerunRequested = false;
       const again = await this.doCheck(source);
       changedAny = changedAny || again;

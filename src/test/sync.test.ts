@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs/promises";
-import { snapshotCursors, diffCursors, updateHealth, type CursorSnapshot } from "../core/sync";
+import { snapshotCursors, diffCursors, updateHealth, SyncEngine, type CursorSnapshot } from "../core/sync";
 import { writeCursor, makeTempRoot, initWorkspace } from "../core/store";
 
 let root: string;
@@ -66,4 +66,27 @@ describe("sync: updateHealth(ヘルスチェック DESIGN.md §5.4)", () => {
     expect(r.consecutiveMissed).toBe(1);
     expect(r.shouldFallback).toBe(false);
   });
+});
+
+it("取り込みに失敗したカーソル変更は次回の照合で再試行する", async () => {
+  let attempts = 0;
+  const engine = new SyncEngine({
+    rootPath: root,
+    reconcileMs: 60000,
+    fallbackMs: 60000,
+    watchEnabled: false,
+    onChange: async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("temporary failure");
+    },
+  });
+  await engine.start();
+  try {
+    await writeCursor(root, "alice", { lastEventId: "0000000000000000000000EVT1", lastChannelId: CH, updatedAt: "t" });
+    await engine.checkNow();
+    await engine.checkNow();
+    expect(attempts).toBe(2);
+  } finally {
+    engine.stop();
+  }
 });

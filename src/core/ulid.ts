@@ -15,12 +15,24 @@ const ENCODING_LEN = ENCODING.length; // 32
 const TIME_LEN = 10;
 const RANDOM_LEN = 16;
 export const ULID_LEN = TIME_LEN + RANDOM_LEN; // 26
+// 共有フォルダの参加者間で時計がずれていても受け入れる猶予。
+export const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
 
 const ULID_PATTERN = new RegExp(`^[${ENCODING}]{${ULID_LEN}}$`);
 
 /** 文字列が妥当な ULID(26 文字・Crockford Base32)か判定する。 */
 export function isValidUlid(value: unknown): value is Ulid {
   return typeof value === "string" && ULID_PATTERN.test(value);
+}
+
+/** 共有フォルダから読み取ったイベント ID の時刻が許容範囲内か判定する。 */
+export function isPlausibleEventUlid(value: unknown, nowMs: number = Date.now()): value is Ulid {
+  if (!isValidUlid(value)) return false;
+  let timestamp = 0;
+  for (let i = 0; i < TIME_LEN; i++) {
+    timestamp = timestamp * ENCODING_LEN + ENCODING.indexOf(value[i]);
+  }
+  return timestamp <= nowMs + MAX_FUTURE_SKEW_MS;
 }
 
 function encodeTime(nowMs: number): string {
@@ -99,8 +111,8 @@ export function monotonicUlidFactory(random: () => number = Math.random): UlidGe
       return candidate;
     },
     observe(ulid: Ulid): void {
-      if (!isValidUlid(ulid)) {
-        return; // 不正値は無視(前方互換/堅牢性)。
+      if (!isPlausibleEventUlid(ulid)) {
+        return; // 不正値・遠い未来の ID は単調性の基準にしない。
       }
       if (lastMax === undefined || ulid > lastMax) {
         lastMax = ulid;

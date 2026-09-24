@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { ChatModel } from "../model/chatModel";
 import { appendEvent, writeCursor, readChannelEvents, makeTempRoot } from "../core/store";
-import { LocalCache } from "../core/localCache";
+import { LocalCache, matchesQueueOrigin, queueOrigin, LOCAL_CACHE_SCHEMA } from "../core/localCache";
 import type { ChatEvent } from "../core/events";
 
 let root: string;
@@ -214,7 +214,7 @@ describe("ChatModel: 送信キューのフラッシュ(§8)", () => {
       author: "alice",
       body: "from queue",
     };
-    await cache.enqueue({ requestId: queued.id, channelId: id, event: queued });
+    await cache.enqueue({ requestId: queued.id, channelId: id, event: queued, origin: queueOrigin(root, "alice") });
 
     await model.flushQueue();
 
@@ -223,5 +223,82 @@ describe("ChatModel: 送信キューのフラッシュ(§8)", () => {
     expect(cache.getQueue()).toHaveLength(0);
     const bodies = model.getChannelView(id)!.threads.map((t) => t.parent.body);
     expect(bodies).toContain("from queue");
+  });
+
+  it("元の共有フォルダへ戻るまで保留し、現在の共有フォルダの分だけ再送する", async () => {
+    const cacheFile = path.join(root, "lc.json");
+    const cache = new LocalCache(cacheFile);
+    await cache.load();
+    model.setLocalCache(cache);
+    const channelA = await model.createChannel("A");
+    const rootB = await makeTempRoot();
+    try {
+      const modelB = new ChatModel(rootB, "alice");
+      await modelB.init("Alice");
+      const channelB = await modelB.createChannel("B");
+      const eventA: ChatEvent = {
+        id: "0000000000000000000000Q001", type: "message_created", ts: "t", author: "alice", body: "private A",
+      };
+      const eventB: ChatEvent = {
+        id: "0000000000000000000000Q002", type: "message_created", ts: "t", author: "alice", body: "for B",
+      };
+      await cache.enqueue({ requestId: eventA.id, channelId: channelA, event: eventA, origin: queueOrigin(root, "alice") });
+      await cache.enqueue({ requestId: eventB.id, channelId: channelB, event: eventB, origin: queueOrigin(rootB, "alice") });
+
+      const cacheB = new LocalCache(cacheFile); // 設定変更による再初期化を模擬。
+      await cacheB.load();
+      modelB.setLocalCache(cacheB);
+      await modelB.flushQueue();
+      expect(await readChannelEvents(rootB, channelA)).toEqual([]);
+      expect((await readChannelEvents(rootB, channelB)).map((e) => e.id)).toContain(eventB.id);
+      expect(cacheB.getQueue().map((item) => item.requestId)).toEqual([eventA.id]);
+
+      const cacheAgain = new LocalCache(cacheFile);
+      await cacheAgain.load();
+      model.setLocalCache(cacheAgain);
+      await model.flushQueue();
+      expect((await readChannelEvents(root, channelA)).map((e) => e.id)).toContain(eventA.id);
+      expect(cacheAgain.getQueue()).toHaveLength(0);
+    } finally {
+      await fs.rm(rootB, { recursive: true, force: true });
+    }
+  });
+
+  it("旧形式のキューは確認して紐付けるまで再送しない", async () => {
+    const channelId = await model.createChannel("general");
+    const queued: ChatEvent = {
+      id: "0000000000000000000000Q003", type: "message_created", ts: "t", author: "alice", body: "legacy",
+    };
+    const cacheFile = path.join(root, "legacy-cache.json");
+    await fs.writeFile(cacheFile, JSON.stringify({
+      schemaVersion: LOCAL_CACHE_SCHEMA,
+      readMarkers: {},
+      sendQueue: [{ requestId: queued.id, channelId, event: queued }],
+    }));
+    const cache = new LocalCache(cacheFile);
+    await cache.load();
+    model.setLocalCache(cache);
+
+    await model.flushQueue();
+    expect(await readChannelEvents(root, channelId)).toEqual([]);
+    expect(cache.getQueue()).toHaveLength(1);
+
+    await cache.claimLegacyQueue(queueOrigin(root, "alice"), [queued.id]);
+    await model.flushQueue();
+    expect((await readChannelEvents(root, channelId)).map((e) => e.id)).toContain(queued.id);
+    expect(cache.getQueue()).toHaveLength(0);
+  });
+
+  it("送信失敗時に元の共有フォルダとユーザー ID をキューへ保存する", async () => {
+    const blockedPath = path.join(root, "not-a-directory");
+    await fs.writeFile(blockedPath, "block");
+    const cache = new LocalCache(path.join(root, "blocked-cache.json"));
+    await cache.load();
+    const blockedModel = new ChatModel(blockedPath, "alice");
+    blockedModel.setLocalCache(cache);
+
+    expect(await blockedModel.sendMessage("0000000000000000000000CHAN", "queued")).toBe("queued");
+    expect(cache.getQueue()).toHaveLength(1);
+    expect(matchesQueueOrigin(cache.getQueue()[0].origin, queueOrigin(blockedPath, "alice"))).toBe(true);
   });
 });

@@ -2,7 +2,7 @@
   "name": "sf-board",
   "displayName": "SF Board",
   "description": "エアギャップ環境向けサーバレス・ボード(共有ネットワークフォルダのみで動作)",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "airgap",
   "private": true,
   "license": "UNLICENSED",
@@ -219,16 +219,17 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "1.85.0",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.20.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vite": "^6.4.3",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@vscode/markdown-it-katex": "^1.1.2",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.13",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "markdown-it": "^14.3.0",
-    "mermaid": "^11.16.0"
+    "mermaid": "^11.16.1"
   }
 }

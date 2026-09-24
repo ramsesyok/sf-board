@@ -13,11 +13,38 @@ import type { Ulid } from "./ulid";
 
 export const LOCAL_CACHE_SCHEMA = 1;
 
+/** 送信待ちイベントを作成したときの送信先。 */
+export interface QueueOrigin {
+  rootPath: string;
+  userId: string;
+}
+
+/** 同じ共有フォルダの表記ゆれ(末尾区切り文字・Windows の大文字小文字)を吸収する。 */
+export function queueOrigin(rootPath: string, userId: string): QueueOrigin {
+  const resolved = path.resolve(rootPath);
+  return { rootPath: process.platform === "win32" ? resolved.toLowerCase() : resolved, userId };
+}
+
+function isQueueOrigin(value: unknown): value is QueueOrigin {
+  return typeof value === "object" && value !== null &&
+    "rootPath" in value && typeof value.rootPath === "string" &&
+    "userId" in value && typeof value.userId === "string";
+}
+
+/** 旧形式や別の共有フォルダのイベントを誤送信しない。 */
+export function matchesQueueOrigin(value: unknown, expected: QueueOrigin): boolean {
+  if (!isQueueOrigin(value)) return false;
+  const normalized = queueOrigin(value.rootPath, value.userId);
+  return normalized.rootPath === expected.rootPath && normalized.userId === expected.userId;
+}
+
 /** オフライン時にローカルへ積む未送信イベント。ULID は enqueue 時に確定させる。 */
 export interface QueuedMessage {
   requestId: string;
   channelId: Ulid;
   event: ChatEvent;
+  /** 旧形式のキャッシュには存在しないため、再送前に明示的な紐付けが必要。 */
+  origin?: QueueOrigin;
 }
 
 interface LocalCacheData {
@@ -78,7 +105,26 @@ export class LocalCache {
   getQueue(): readonly QueuedMessage[] {
     return this.data.sendQueue;
   }
-  async enqueue(msg: QueuedMessage): Promise<void> {
+  getLegacyQueue(): readonly QueuedMessage[] {
+    return this.data.sendQueue.filter((item) => !isQueueOrigin(item.origin));
+  }
+  getLegacyQueueCount(): number {
+    return this.getLegacyQueue().length;
+  }
+  /** 利用者が送信先を確認した旧形式のイベントだけを紐付ける。 */
+  async claimLegacyQueue(origin: QueueOrigin, requestIds: readonly string[]): Promise<void> {
+    const selected = new Set(requestIds);
+    if (selected.size === 0) return;
+    let changed = false;
+    for (const item of this.data.sendQueue) {
+      if (!isQueueOrigin(item.origin) && selected.has(item.requestId)) {
+        item.origin = origin;
+        changed = true;
+      }
+    }
+    if (changed) await this.persist();
+  }
+  async enqueue(msg: QueuedMessage & { origin: QueueOrigin }): Promise<void> {
     this.data.sendQueue.push(msg);
     await this.persist();
   }
