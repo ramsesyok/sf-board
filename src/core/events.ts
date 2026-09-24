@@ -6,7 +6,7 @@
 // - 外部入力の境界なので unknown → 型ガードで検証する(any 禁止)。
 
 import type { Ulid } from "./ulid";
-import { isValidUlid } from "./ulid";
+import { isPlausibleEventUlid, isValidUlid } from "./ulid";
 
 export interface MessageCreatedEvent {
   id: Ulid;
@@ -93,7 +93,7 @@ function hasCommonFields(o: Record<string, unknown>): o is Record<string, unknow
   ts: string;
   author: string;
 } {
-  return isValidUlid(o.id) && typeof o.ts === "string" && isNonEmptyString(o.author);
+  return isPlausibleEventUlid(o.id) && typeof o.ts === "string" && isNonEmptyString(o.author);
 }
 
 /**

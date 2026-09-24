@@ -14,7 +14,7 @@ import { serializeEvent, type ChatEvent } from "../core/events";
 import { monotonicUlidFactory, type Ulid } from "../core/ulid";
 import type { ChannelMeta, UserProfile } from "../shared/types";
 import type { StoredAttachment } from "../core/store";
-import type { LocalCache } from "../core/localCache";
+import { matchesQueueOrigin, queueOrigin, type LocalCache, type QueueOrigin } from "../core/localCache";
 import { noopDiagnosticsLogger, type DiagnosticsLogger } from "../core/diagnostics";
 
 export interface ChannelSummary {
@@ -57,11 +57,13 @@ export class ChatModel {
   private knownChannelIds = new Set<Ulid>();
   private cache: LocalCache | undefined;
   private logger: DiagnosticsLogger = noopDiagnosticsLogger;
+  private readonly origin: QueueOrigin;
 
   constructor(
     private readonly rootPath: string,
     private readonly selfUserId: string,
   ) {
+    this.origin = queueOrigin(rootPath, selfUserId);
     // チャンネルごとにパネルが購読するため、既定の 10 では誤検知警告が出る。
     // 50人・多チャンネル規模を想定して上限を引き上げる(0=無制限にはしない)。
     this.emitter.setMaxListeners(200);
@@ -340,7 +342,7 @@ export class ChatModel {
       });
     } catch (err) {
       if (this.cache) {
-        await this.cache.enqueue({ requestId: event.id, channelId, event });
+        await this.cache.enqueue({ requestId: event.id, channelId, event, origin: this.origin });
         this.logger.log("warn", "send.queued", {
           channelId,
           eventId: event.id,
@@ -365,7 +367,12 @@ export class ChatModel {
     if (queue.length === 0) return;
     const touched = new Set<Ulid>();
     let sent = 0;
+    let skipped = 0;
     for (const item of queue) {
+      if (!matchesQueueOrigin(item.origin, this.origin)) {
+        skipped++;
+        continue;
+      }
       try {
         await store.appendEvent(this.rootPath, item.channelId, this.selfUserId, item.event);
         await store.writeCursor(this.rootPath, this.selfUserId, {
@@ -382,6 +389,7 @@ export class ChatModel {
     }
     this.logger.log(sent > 0 ? "info" : "debug", "queue.flush", {
       sent,
+      skipped,
       remaining: this.cache.getQueue().length,
     });
     for (const id of touched) {

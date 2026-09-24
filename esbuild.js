@@ -16,6 +16,7 @@ const targets = [
     name: "extension (host)",
     entry: "src/extension.ts",
     options: {
+      absWorkingDir: __dirname,
       entryPoints: ["src/extension.ts"],
       outfile: "dist/extension.js",
       bundle: true,
@@ -31,6 +32,7 @@ const targets = [
     name: "webview",
     entry: "src/ui/webview/main.ts",
     options: {
+      absWorkingDir: __dirname,
       entryPoints: ["src/ui/webview/main.ts"],
       outfile: "dist/webview.js",
       bundle: true,

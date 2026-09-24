@@ -3,6 +3,8 @@ import {
   monotonicUlidFactory,
   incrementUlid,
   isValidUlid,
+  isPlausibleEventUlid,
+  MAX_FUTURE_SKEW_MS,
   ULID_LEN,
 } from "../core/ulid";
 
@@ -42,9 +44,10 @@ describe("ulid: 単調性補正(DESIGN.md §3)", () => {
 
   it("observe した外部 ULID より必ず大きい値を返す", () => {
     const gen = monotonicUlidFactory(() => 0);
-    const external = "7ZZZZZZZZZZZZZZZZZZZZZZZZZ"; // かなり大きい値
+    const now = Date.now();
+    const external = monotonicUlidFactory(() => 0).next(now + 1000);
     gen.observe(external);
-    const next = gen.next(1000); // 本来は external より小さい時刻
+    const next = gen.next(now); // 本来は external より小さい時刻
     expect(next > external).toBe(true);
     expect(gen.last).toBe(next);
   });
@@ -53,6 +56,23 @@ describe("ulid: 単調性補正(DESIGN.md §3)", () => {
     const gen = monotonicUlidFactory(() => 0);
     gen.observe("not-a-ulid");
     expect(gen.last).toBeUndefined();
+  });
+
+  it("observe は最大 ULID を無視し、後続の投稿 ID を生成できる", () => {
+    const gen = monotonicUlidFactory(() => 0);
+    gen.observe("Z".repeat(26));
+    expect(gen.last).toBeUndefined();
+    expect(() => gen.next()).not.toThrow();
+  });
+});
+
+describe("ulid: 共有イベントの時刻検証", () => {
+  it("時計ずれの猶予を超えた未来時刻を拒否する", () => {
+    const now = Date.now();
+    const id = (at: number) => monotonicUlidFactory(() => 0).next(at);
+    expect(isPlausibleEventUlid(id(now + MAX_FUTURE_SKEW_MS), now)).toBe(true);
+    expect(isPlausibleEventUlid(id(now + MAX_FUTURE_SKEW_MS + 1), now)).toBe(false);
+    expect(isPlausibleEventUlid("Z".repeat(26), now)).toBe(false);
   });
 });
 

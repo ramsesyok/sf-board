@@ -113,6 +113,14 @@ describe("store: channel / cursor / user のラウンドトリップ", () => {
     expect(all["alice"].displayName).toBe("Alice A");
   });
 
+  it("特殊な userId でもプロフィール辞書のプロトタイプを変更しない", async () => {
+    await writeUserProfile(root, { userId: "__proto__", displayName: "Special" });
+    const all = await readAllUserProfiles(root);
+    expect(Object.getPrototypeOf(all)).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(all, "__proto__")).toBe(true);
+    expect(all["__proto__"].displayName).toBe("Special");
+  });
+
   it("listChannelIds はチャンネルディレクトリを列挙する", async () => {
     await createChannelMeta(root, { id: CH, name: "g", createdBy: "a", createdAt: "t" });
     expect(await listChannelIds(root)).toEqual([CH]);
@@ -139,6 +147,13 @@ describe("store: readChannelEvents", () => {
 });
 
 describe("store: 添付ファイル(DESIGN.md §4.3)", () => {
+  it("特殊なディレクトリ名でも添付辞書のプロトタイプを変更しない", async () => {
+    await writeAttachment(root, CH, "__proto__", Buffer.from("x"), "x.txt", "text/plain", new Date(2026, 6, 9));
+    const list = await listAttachments(root, CH);
+    expect(Object.getPrototypeOf(list)).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(list, "__proto__")).toBe(true);
+  });
+
   it("書き込み後 listAttachments で meta と共に取得でき、SHA-256 が一致する", async () => {
     const data = Buffer.from("attachment payload");
     const ulid = "0000000000000000000000ATT1";

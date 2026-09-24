@@ -25,6 +25,8 @@ export interface ChatPanelDeps {
 
 export class ChatPanel {
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly disposeListeners = new Set<() => void>();
+  private disposed = false;
 
   constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -50,7 +52,7 @@ export class ChatPanel {
       undefined,
       this.disposables,
     );
-    this.panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
+    this.panel.onDidDispose(() => this.dispose(false), undefined, this.disposables);
 
     // 自チャンネルの更新のみ Webview へ反映する。
     this.disposables.push(
@@ -79,13 +81,19 @@ export class ChatPanel {
   }
 
   onDidDispose(listener: () => void): void {
-    this.panel.onDidDispose(listener, undefined, this.disposables);
+    if (this.disposed) listener();
+    else this.disposeListeners.add(listener);
   }
 
-  dispose(): void {
+  dispose(closePanel = true): void {
+    if (this.disposed) return;
+    this.disposed = true;
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }
+    for (const listener of this.disposeListeners) listener();
+    this.disposeListeners.clear();
+    if (closePanel) this.panel.dispose();
   }
 
   private post(message: HostMessage): void {
@@ -140,8 +148,15 @@ export class ChatPanel {
     const files: { ulid: string; name: string; size: number }[] = [];
     if (picked) {
       for (const uri of picked) {
-        const data = await fsp.readFile(uri.fsPath);
         const name = path.basename(uri.fsPath);
+        const size = (await fsp.stat(uri.fsPath)).size;
+        if (size > this.deps.attachmentMaxBytes) {
+          void vscode.window.showErrorMessage(
+            hlSafe("attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
+          );
+          continue;
+        }
+        const data = await fsp.readFile(uri.fsPath);
         if (data.length > this.deps.attachmentMaxBytes) {
           void vscode.window.showErrorMessage(
             hlSafe("attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
