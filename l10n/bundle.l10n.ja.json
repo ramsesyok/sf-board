@@ -33,5 +33,12 @@
   "Copy link": "リンクのコピー",
   "Link copied to the clipboard.": "リンクをクリップボードにコピーしました。",
   "Cancel": "キャンセル",
-  "Offline: the message was queued and will be sent when the shared folder is reachable.": "オフラインのため送信キューに追加しました。共有フォルダに到達できるようになったら送信されます。"
+  "Offline: the message was queued and will be sent when the shared folder is reachable.": "オフラインのため送信キューに追加しました。共有フォルダに到達できるようになったら送信されます。",
+  "New message in #{0} — {1}: {2}": "#{0} に新着 — {1}: {2}",
+  "{0} new messages in #{1} — latest from {2}: {3}": "#{1} に新着 {0} 件 — 最新 {2}: {3}",
+  "(attachment)": "(添付ファイル)",
+  "Open": "開く",
+  "SF Board: {0} unread": "SF Board: 未読 {0} 件",
+  "SF Board Unread": "SF Board 未読",
+  "No unread messages.": "未読メッセージはありません。"
 }

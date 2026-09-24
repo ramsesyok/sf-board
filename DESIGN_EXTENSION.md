@@ -13,6 +13,7 @@
 | 送信キー | Ctrl+Enter で送信、Enter は改行 |
 | 添付サイズ上限 | 既定 10MB(設定で変更可) |
 | 表示言語 | 日本語+英語(i18n対応) |
+| 新着通知 | アクティビティバーのバッジ+ステータスバーの未読数(既定で有効)、VS Code 内ポップアップ(既定で無効)。サイドバー・チャンネルを開いていなくても通知する(§7.1) |
 | 追加機能の対象外 | メンション通知、DM、OSトースト通知(将来拡張として設計だけ壊さない) |
 | 配布 | VSIX手動配布(エアギャップ環境でのオフラインインストール) |
 
@@ -185,6 +186,40 @@ type WebviewMessage =
 - ツリー項目: チャンネル一覧(名前順)。未読ありは太字+未読件数バッジ(`TreeItem.description`)。クリックでパネルを開く/reveal。
 - インラインアクション: チャンネル作成(＋)、リフレッシュ。コンテキストメニュー: リネーム。
 - 未読判定: ローカルの最終読了 ULID(DESIGN.md §6)と各チャンネル最新イベント ULID の比較。パネルがアクティブになった時点で読了を更新する。
+- TreeView は `createTreeView` で activate 時に 1 度だけ生成し、再初期化(§8.2)をまたいで保持する(バッジを載せるため。§7.1)。`sfBoard.rootPath` 未設定時は `viewsWelcome` で「初期設定」ボタンを表示する。
+
+### 7.1 新着通知
+
+サイドバーやチャンネルのタブを開いていなくても、新着メッセージに気づけるようにする。すべて VS Code 内の表示で、OS のトースト通知は行わない(§1)。
+
+**起動時アクティベート**
+
+- `activationEvents` は `onStartupFinished` と `onView:sfBoardChannels`。VS Code の起動後、ビューを開かなくても同期(DESIGN.md §5)が動く。
+  - 当初は共有フォルダへのアクセスを減らすためビュー表示時のみ起動としていたが、実運用では常時表示されがちで効果が小さいため方針を変更した。待機中の I/O は fs.watch 監視層ならほぼゼロ。フォールバック中はポーリング負荷がかかる。
+- 起動時に `sfBoard.rootPath` が未設定なら、警告を出さずに待機する(設定していない人の起動ごとに警告しないため)。設定変更による再初期化では従来どおり警告する。
+- 再初期化の完了時に `ChatModel.listChannels()` で全チャンネルを読み込み、未読数を計算できる状態にする(これまではツリーの表示を契機に読み込んでいた)。
+
+**表示手段**
+
+| 手段 | 実装 | 既定 | 内容 |
+|---|---|---|---|
+| アクティビティバーのバッジ | `TreeView.badge` | 常に有効 | 全チャンネルの未読数の合計。0 のときは非表示。tooltip は「SF Board: 未読 N 件」 |
+| ステータスバー | `window.createStatusBarItem`(左寄せ) | `sfBoard.notify.statusBar` = true | `$(comment-unread) N`。0 のときは非表示。tooltip にチャンネルごとの未読数を表示し、クリックで `sfBoard.openUnread` を実行する |
+| ポップアップ | `window.showInformationMessage`(非モーダル) | `sfBoard.notify.popup` = `off` | `all` のとき、他者の新着メッセージで「#channel に新着 — 表示名: 本文の抜粋」と [開く] ボタンを表示する |
+
+- 未読数は §7 の未読判定をそのまま使う(自分の投稿と削除済みは数えない)。
+- 既読化は従来どおり、パネルがアクティブになった時点。
+
+**ポップアップの判定**
+
+- チャンネルごとに「通知済みの基準 ULID」をメモリで保持する(永続化しない。共有フォルダにも書かない)。初めて観測したチャンネルは最新イベント ULID を基準にするだけで通知しない。起動直後や新チャンネル発見時に既存の履歴をまとめて通知しないため。
+- `onChannelUpdated` のたびに、基準より新しい「自分以外・非削除」のメッセージを集め、基準を最新イベント ULID へ進める。
+- 次のときはポップアップを出さない(バッジ・ステータスバーには反映する):
+  - 当該チャンネルのパネルがアクティブで、かつ VS Code ウィンドウにフォーカスがある
+  - 同じチャンネルで直近 30 秒以内にポップアップを出している(連投で埋め尽くさないため)
+- 複数件なら「#channel に新着 N 件 — 最新 表示名: 抜粋」とする。抜粋は本文の最初の空でない行を 80 文字で切ったもの。本文が空(添付のみ)なら「(添付ファイル)」。
+- **リンク構文の無害化(必須)**: 本文・表示名・チャンネル名は他ユーザー由来のため、ポップアップの文言は `hlSafe()` で組み立てる(§10)。
+- 判定ロジック(基準の管理・クールダウン・抜粋)は vscode 非依存の `model/newMessageTracker.ts` に置き、単体テストする。表示は Host 側の `ui/notifier.ts` が担う。
 
 ## 8. コマンド・設定・キーバインド
 
@@ -199,6 +234,7 @@ type WebviewMessage =
 | `sfBoard.setup` | 初期設定ウィザード(rootPath/userId/displayName を順に入力) |
 | `sfBoard.showDiagnostics` | 同期診断ログの出力チャネルを表示(§8.1) |
 | `sfBoard.verifyConnection` | 共有フォルダの接続確認(存在/読み書き/UNC 許可/実エラーを検査、§8.2) |
+| `sfBoard.openUnread` | 未読のあるチャンネルのうち、最新の未読メッセージを持つものを開く(ステータスバーのクリック、§7.1) |
 
 ### 設定(DESIGN.md §7 の表に追加)
 
@@ -209,6 +245,8 @@ type WebviewMessage =
 | `sfBoard.threadDisplay` | 返信の表示方式 `inline` / `thread`(§6.6) | inline |
 | `sfBoard.diagnostics.enabled` | 同期診断ログの有効化(§8.1) | false |
 | `sfBoard.confirmOpenPath` | 本文内のパスを開く前に確認する(§10)。有効時は確認に「パスをコピー」も併設 | true |
+| `sfBoard.notify.statusBar` | ステータスバーに未読数を表示する(§7.1) | true |
+| `sfBoard.notify.popup` | 新着のポップアップ通知 `off` / `all`(§7.1) | off |
 
 設定キーの接頭辞は `sfBoard.` に統一する(DESIGN.md 記載の `chat.` は本書で上書き)。
 
@@ -223,7 +261,7 @@ type WebviewMessage =
 
 ### 8.2 セットアップの堅牢化と共有フォルダ接続診断
 
-- **再初期化のデバウンス+直列化**: 初期設定は `rootPath`/`userId`/`displayName` を連続して `config.update` するため、素朴に「設定変更ごとに `reinitialize`」を呼ぶと再初期化が多重に走り、共有フォルダ(特にネットワーク)上で `model.init`(mkdir/書込/読込)が競合して**初回セットアップで一時的なエラー**が出る(その後は正常)。対策として、設定変更を 250ms デバウンスし、`reinitialize` を直列化する(実行中なら 1 回だけ再実行を予約)。再初期化の契機は必要なキー(`rootPath`/`userId`/`displayName`/`poll.*`/`watch.enabled`)に限定し、表示系設定(`threadDisplay`/`attachmentMaxBytes`/`imageInlinePreview`/`diagnostics.enabled`。都度参照)では再初期化しない。
+- **再初期化のデバウンス+直列化**: 初期設定は `rootPath`/`userId`/`displayName` を連続して `config.update` するため、素朴に「設定変更ごとに `reinitialize`」を呼ぶと再初期化が多重に走り、共有フォルダ(特にネットワーク)上で `model.init`(mkdir/書込/読込)が競合して**初回セットアップで一時的なエラー**が出る(その後は正常)。対策として、設定変更を 250ms デバウンスし、`reinitialize` を直列化する(実行中なら 1 回だけ再実行を予約)。再初期化の契機は必要なキー(`rootPath`/`userId`/`displayName`/`poll.*`/`watch.enabled`)に限定し、表示系設定(`threadDisplay`/`attachmentMaxBytes`/`imageInlinePreview`/`diagnostics.enabled`/`notify.*`。都度参照)では再初期化しない。
 - **UNC ホスト許可(Windows)**: VS Code は UNC パス(`\\host\share`)を `security.allowedUNCHosts` で制限する。`reinitialize` は init 前に、Windows かつ UNC かつ未許可(`security.restrictUNCAccess` 有効)を検出したら、確認ダイアログを出し、同意時のみ `security.allowedUNCHosts` にホストを追加してウィンドウを再読み込みする(設定反映に再読み込みが必要なため)。同意が得られない場合は init を中断する(サイレント追加はしない)。
 - **接続確認コマンド** `sfBoard.verifyConnection`: 共有フォルダの存在・ディレクトリ種別・読み取り・書き込み(一時ファイルで実測し必ず削除)・`workspace.json` の有無・UNC 許可状態・実エラー(code/path)を検査し、結果をモーダルで表示する。init 失敗時のエラーメッセージにも原因(エラーコード)を含め、「接続確認」ボタンから本コマンドを起動できる。判定ロジックは vscode 非依存の `host/connectionCheck.ts`(`parseUncHost`/`probeSharedFolder`)に置き単体テストする。
 
@@ -253,6 +291,7 @@ type WebviewMessage =
 - `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` で装飾する(表示は `@userId` のまま、hover で表示名)。自分宛は `mention-self` で強調。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
 - 数式(KaTeX): `$...$`(インライン)/ `$$...$$`(ブロック)/ ` ```math ` フェンスに対応。`@vscode/markdown-it-katex` でパースし、レンダラを上書きして**プレースホルダ span**(class + エスケープ済みテキストのみ)を出力→ DOMPurify 通過後に `katex.renderToString`(`trust:false`・`throwOnError:false`)で実描画する。KaTeX の CSS とフォントはビルド時に `dist/katex.css` へ**フォント(woff2)を data URI で内包**して同梱し、Webview は `<link>`(cspSource 経由)で読む。外部フォント参照は持たない。CSP に `font-src data:` を追加(§4)。
 - 図(mermaid): ` ```mermaid ` フェンスに対応。同様にプレースホルダ→ `mermaid.render`(`securityLevel:'strict'`・`startOnLoad:false`)で SVG を生成し差し込む。テーマは `body.vscode-dark`/`light` に追従。外部アイコン/CDN は使わない(`loadExternalDiagrams` 等は無効)。
+- **Host の通知・ダイアログへの差し込み値の無害化(必須)**: VS Code の非モーダル通知(`show*Message`)は `[label](https:…)` / `(command:…)` / `(file:…)` をリンクとして描画し、クリックで URL を開いたりコマンドを実行したりする。本文中のパス・添付名・表示名・チャンネル名などは他ユーザーが自由に書けるため、そのまま埋め込むと任意コマンドの実行や、ブラウザ起動による外部接続を誘導できる。動的な値を差し込む文言は必ず `hlSafe()`(`host/hostL10n.ts`)で組み立てる。`hlSafe` は差し込み値ごとに `neutralizeNotificationLinks`(`shared/notificationText.ts`)を適用し、`](` にゼロ幅スペースを挟んでリンクとして解釈させない。モーダルダイアログも同じ扱いにする(多層防御)。無害化するのは表示文字列だけで、クリップボードへのコピーやパスを開く処理には元の値を使う。
 - KaTeX/mermaid の出力は複雑な span/SVG/inline style を含み厳格な DOMPurify を通せないが、いずれも自前で安全な HTML を生成する(KaTeX は trust:false、mermaid は strict)ため、**サニタイズ後**にプレースホルダへ差し込む方式とする。プレースホルダ自体は既存の DOMPurify ホワイトリスト(span/class/テキスト)を通過する。
 
 ## 11. ビルド・配布(VSIX / オフライン)
@@ -292,7 +331,7 @@ type WebviewMessage =
 
 ## 14. 将来拡張のための予約(実装しないが壊さない)
 
-- メンション: `body` 内の `@userId`(既知ユーザー)は **v0.0.4 でハイライト装飾を実装済み**(§10)。通知は引き続き対象外(将来拡張)。
+- メンション: `body` 内の `@userId`(既知ユーザー)は **v0.0.4 でハイライト装飾を実装済み**(§10)。メンションに限った通知は引き続き対象外(将来拡張)。`sfBoard.notify.popup` の値に `mentions` を追加すれば対応できる構造にしておく(§7.1)。
 - DM: `channel.json` に `members?: string[]` フィールドを予約(現在は未使用・全公開チャンネル)。
 - 全チャンネル横断検索: ローカルキャッシュ(DESIGN.md §6)上へのインデックス追加で対応可能な構造を維持する。
 - アーカイブ: `channel_archived` イベント追加で対応可能(type 未知イベントは無視される前方互換性で担保済み)。

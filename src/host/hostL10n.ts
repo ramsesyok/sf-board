@@ -6,6 +6,7 @@
 
 import * as vscode from "vscode";
 import { getStrings } from "../shared/strings";
+import { neutralizeNotificationLinks } from "../shared/notificationText";
 
 const EN = getStrings("en");
 
@@ -13,4 +14,13 @@ const EN = getStrings("en");
 export function hl(key: string, ...args: string[]): string {
   const message = EN[key] ?? key;
   return vscode.l10n.t(message, ...args);
+}
+
+/**
+ * 差し込み値を無害化してから文言を組み立てる(show*Message に動的な値を入れるときは必ずこれを使う)。
+ * 非モーダル通知は `[x](command:…)` 等をクリック可能なリンクとして描画するため、他ユーザー由来の
+ * 本文・パス・添付名などをそのまま入れると任意コマンド実行や外部接続の誘導に使える(§10)。
+ */
+export function hlSafe(key: string, ...args: string[]): string {
+  return hl(key, ...args.map(neutralizeNotificationLinks));
 }

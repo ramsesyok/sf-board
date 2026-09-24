@@ -134,20 +134,57 @@ export class ChatModel {
 
   /** 未読数を計算する(最終読了 ULID より後の、自分以外・非削除メッセージ数)。 */
   private computeUnread(channelId: Ulid): number {
-    const loaded = this.loaded.get(channelId);
-    if (!loaded || !this.cache) return 0;
+    if (!this.loaded.has(channelId) || !this.cache) return 0;
     const marker = this.cache.getReadMarker(channelId) ?? "";
-    let count = 0;
-    for (const thread of loaded.view.threads) {
-      for (const m of [thread.parent, ...thread.replies]) {
-        if (!m.deleted && m.author !== this.selfUserId && m.id > marker) count++;
-      }
-    }
-    return count;
+    return this.getIncomingMessagesAfter(channelId, marker).length;
   }
 
   getUnreadCount(channelId: Ulid): number {
     return this.computeUnread(channelId);
+  }
+
+  /**
+   * ロード済みチャンネルの一覧(未読数込み)を I/O なしで返す(新着通知用、§7.1)。
+   * 新チャンネルの取り込みは listChannels() が担う。
+   */
+  getLoadedSummaries(): ChannelSummary[] {
+    const summaries: ChannelSummary[] = [];
+    for (const [id, loaded] of this.loaded) {
+      summaries.push({ id, name: loaded.view.channelName, unread: this.computeUnread(id) });
+    }
+    summaries.sort((a, b) => a.name.localeCompare(b.name));
+    return summaries;
+  }
+
+  /** チャンネルで観測した最大イベント ID(未ロードなら undefined)。 */
+  getLatestEventId(channelId: Ulid): Ulid | undefined {
+    return this.loaded.get(channelId)?.latestEventId;
+  }
+
+  /** afterId より新しい、自分以外・非削除のメッセージ(ULID 昇順)。新着通知用(§7.1)。 */
+  getIncomingMessagesAfter(channelId: Ulid, afterId: Ulid): MessageState[] {
+    const view = this.loaded.get(channelId)?.view;
+    if (!view) return [];
+    const result: MessageState[] = [];
+    for (const thread of view.threads) {
+      for (const m of [thread.parent, ...thread.replies]) {
+        if (!m.deleted && m.author !== this.selfUserId && m.id > afterId) result.push(m);
+      }
+    }
+    return result.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** 未読のあるチャンネルのうち、最新の未読メッセージを持つものの ID(無ければ undefined)。 */
+  findChannelWithLatestUnread(): Ulid | undefined {
+    if (!this.cache) return undefined;
+    let best: { channelId: Ulid; messageId: Ulid } | undefined;
+    for (const id of this.loaded.keys()) {
+      const marker = this.cache.getReadMarker(id) ?? "";
+      const unread = this.getIncomingMessagesAfter(id, marker);
+      const latest = unread[unread.length - 1];
+      if (latest && (!best || latest.id > best.messageId)) best = { channelId: id, messageId: latest.id };
+    }
+    return best?.channelId;
   }
 
   /** パネルがアクティブになった時点で読了位置を最新へ進める(§7)。 */

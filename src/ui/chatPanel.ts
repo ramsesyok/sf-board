@@ -11,7 +11,7 @@ import * as childProcess from "child_process";
 import type { ChatModel } from "../model/chatModel";
 import type { HostMessage, WebviewMessage, AttachmentInfo } from "../shared/protocol";
 import { getStrings, pickLang } from "../shared/strings";
-import { hl } from "../host/hostL10n";
+import { hl, hlSafe } from "../host/hostL10n";
 import { mimeFromFilename, isInlineImageMime } from "../shared/mime";
 import { verifyAttachment } from "../core/store";
 
@@ -71,6 +71,11 @@ export class ChatPanel {
 
   reveal(column?: vscode.ViewColumn): void {
     this.panel.reveal(column);
+  }
+
+  /** エディタグループ内でアクティブ(前面)か。 */
+  get active(): boolean {
+    return this.panel.active;
   }
 
   onDidDispose(listener: () => void): void {
@@ -139,7 +144,7 @@ export class ChatPanel {
         const name = path.basename(uri.fsPath);
         if (data.length > this.deps.attachmentMaxBytes) {
           void vscode.window.showErrorMessage(
-            hl("attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
+            hlSafe("attachTooLarge", name, String(this.deps.attachmentMaxBytes)),
           );
           continue;
         }
@@ -165,11 +170,11 @@ export class ChatPanel {
     // 保存時に SHA-256 検証する(DESIGN.md §4.3)。
     const ok = await verifyAttachment(stored.blobPath, stored.meta.sha256);
     if (!ok) {
-      void vscode.window.showErrorMessage(hl("attachVerifyFailed", stored.meta.name));
+      void vscode.window.showErrorMessage(hlSafe("attachVerifyFailed", stored.meta.name));
       return;
     }
     await fsp.copyFile(stored.blobPath, target.fsPath);
-    void vscode.window.showInformationMessage(hl("attachSaved", target.fsPath));
+    void vscode.window.showInformationMessage(hlSafe("attachSaved", target.fsPath));
   }
 
   private async handleOpenLink(href: string): Promise<void> {
@@ -183,7 +188,7 @@ export class ChatPanel {
     }
     if (uri.scheme !== "http" && uri.scheme !== "https") return;
     const copyLabel = hl("linkCopy");
-    const choice = await vscode.window.showInformationMessage(hl("linkConfirm", href), { modal: true }, copyLabel);
+    const choice = await vscode.window.showInformationMessage(hlSafe("linkConfirm", href), { modal: true }, copyLabel);
     if (choice === copyLabel) {
       await vscode.env.clipboard.writeText(href);
       void vscode.window.showInformationMessage(hl("linkCopied"));
@@ -206,7 +211,7 @@ export class ChatPanel {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (!isUnc && code === "ENOENT") {
-        void vscode.window.showErrorMessage(hl("pathNotFound", rawPath));
+        void vscode.window.showErrorMessage(hlSafe("pathNotFound", rawPath));
         return;
       }
       isDir = undefined; // 判定不能でも開けるので続行(reveal は種別不問)。
@@ -219,7 +224,7 @@ export class ChatPanel {
       const msgKey =
         isDir === true ? "pathConfirmOpenFolder" : isDir === false ? "pathConfirmRevealFile" : "pathConfirmOpen";
       const choice = await vscode.window.showWarningMessage(
-        hl(msgKey, rawPath),
+        hlSafe(msgKey, rawPath),
         { modal: true },
         actionLabel,
         copyLabel,
@@ -269,7 +274,7 @@ export class ChatPanel {
 
   private offerCopyOnFailure(target: string): void {
     const copyLabel = hl("pathCopy");
-    void vscode.window.showErrorMessage(hl("pathOpenFailed", target), copyLabel).then((c) => {
+    void vscode.window.showErrorMessage(hlSafe("pathOpenFailed", target), copyLabel).then((c) => {
       if (c === copyLabel) void this.copyPath(target);
     });
   }

@@ -20,5 +20,11 @@
   "config.threadDisplay.inline": "Show replies inline under the parent message in the timeline.",
   "config.threadDisplay.thread": "Show a \"N replies\" summary in the timeline and open replies in a thread pane on the right.",
   "config.diagnostics.enabled": "Log sync/update-detection diagnostics to the \"SF Board\" output channel (metadata only; no message content). Disabled by default.",
-  "config.confirmOpenPath": "Show a confirmation dialog before opening a file/folder path written in a message. When on, the dialog also offers \"Copy path\"."
+  "config.confirmOpenPath": "Show a confirmation dialog before opening a file/folder path written in a message. When on, the dialog also offers \"Copy path\".",
+  "command.openUnread": "Open Unread Channel",
+  "config.notify.statusBar": "Show the number of unread messages in the status bar.",
+  "config.notify.popup": "Show a pop-up notification (inside VS Code) for new messages from others.",
+  "config.notify.popup.off": "No pop-up notifications (unread counts are still shown on the badge and status bar).",
+  "config.notify.popup.all": "Pop up for new messages in any channel (at most once per 30 seconds per channel).",
+  "viewsWelcome.setup": "The shared folder is not configured yet.\n[Setup](command:sfBoard.setup)"
 }

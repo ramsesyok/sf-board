@@ -67,6 +67,14 @@ const en = {
   "pathNotFound": "Path not found: {0}",
   "pathOpenFailed": "Could not open the path: {0}",
   "pathCopied": "Path copied to the clipboard.",
+  // Host 側(新着通知、§7.1)
+  "notifyNewMessage": "New message in #{0} — {1}: {2}",
+  "notifyNewMessages": "{0} new messages in #{1} — latest from {2}: {3}",
+  "notifyAttachmentOnly": "(attachment)",
+  "notifyOpen": "Open",
+  "unreadTotal": "SF Board: {0} unread",
+  "unreadStatusBarName": "SF Board Unread",
+  "noUnread": "No unread messages.",
 } as const;
 
 type StringKey = keyof typeof en;
@@ -129,6 +137,13 @@ const ja: Record<StringKey, string> = {
   "pathNotFound": "パスが見つかりません: {0}",
   "pathOpenFailed": "パスを開けませんでした: {0}",
   "pathCopied": "パスをクリップボードにコピーしました。",
+  "notifyNewMessage": "#{0} に新着 — {1}: {2}",
+  "notifyNewMessages": "#{1} に新着 {0} 件 — 最新 {2}: {3}",
+  "notifyAttachmentOnly": "(添付ファイル)",
+  "notifyOpen": "開く",
+  "unreadTotal": "SF Board: 未読 {0} 件",
+  "unreadStatusBarName": "SF Board 未読",
+  "noUnread": "未読メッセージはありません。",
 };
 
 const bundles: Record<Lang, Record<StringKey, string>> = { en, ja };
