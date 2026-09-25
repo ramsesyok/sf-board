@@ -288,7 +288,7 @@ type WebviewMessage =
   - クリック時: Host が `openPath` を受け、`fs.stat` で種別判定し、設定 `sfBoard.confirmOpenPath`(既定 `true`)が有効なら確認ダイアログ(「開く/表示」+「パスをコピー」)を挟む。**フォルダは OS のファイルマネージャで中を開く**(win32 `explorer.exe` / darwin `open` / linux `xdg-open` へ `child_process.spawn`、引数配列で Unicode 安全)、**ファイルは `vscode.commands.executeCommand('revealFileInOS', Uri.file(path))`**(VS Code 組み込み・全 OS・**関連付け不問・文字化けなし**)でファイルマネージャに選択表示する。UNC は `allowedUNCHosts` 登録前提だが、万一 `fs.stat` が失敗しても中断せず開き(種別不明時は reveal)、ローカルの `ENOENT` のみ「見つかりません」を表示する。開く操作が失敗した場合は「パスをコピー」を提案する(安全弁)。いずれもローカル/共有フォルダの操作のみで**外部通信は行わない**(`child_process` はネットワーク API ではない)。※ ファイルを「既定アプリで開く」方式(`Start-Process`・`openExternal(file:)`)は、関連付けの無い拡張子で無反応・日本語パス破損・OS 差といった不安定さがあるため採用しない。
 - 画像記法 `![](...)` は `attachment://` スキームのみ許可。外部URLの画像は描画しない。添付画像のサムネイルはクリックでライトボックス(拡大表示)を開き、そこからダウンロード(保存ダイアログ + SHA-256 検証)できる(§6.5)。
 - コードハイライト: `highlight.js/lib/common`(common言語のみ)を Webview バンドルに同梱し、`markdown-it` の `highlight` オプションで適用。出力は `<span class="hljs-*">` で DOMPurify のホワイトリスト(span/class)を通過する。言語未指定/失敗時はプレーン表示。トークン色は VS Code のテーマ(`body.vscode-dark` / `body.vscode-light`)に追従する。
-- `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` で装飾する(表示は `@userId` のまま、hover で表示名)。自分宛は `mention-self` で強調。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
+- `@メンション`装飾: サニタイズ後の本文テキストノードを走査し、`@userId` が**既知ユーザー**(`users` に存在)の場合のみ `<span class="mention">` へ変換する。本文の保存値は `@userId` のまま、画面には `@DisplayName` を表示し、hover で userId を確認できるようにする。表示名が重複しても判定は userId で行う。**自分宛のみ** `mention-self` で色を変え、他ユーザー宛は通常の本文色にする。コード(`code`/`pre`)・リンク内は対象外。通知は行わない(§14)。
 - 数式(KaTeX): `$...$`(インライン)/ `$$...$$`(ブロック)/ ` ```math ` フェンスに対応。`@vscode/markdown-it-katex` でパースし、レンダラを上書きして**プレースホルダ span**(class + エスケープ済みテキストのみ)を出力→ DOMPurify 通過後に `katex.renderToString`(`trust:false`・`throwOnError:false`)で実描画する。KaTeX の CSS とフォントはビルド時に `dist/katex.css` へ**フォント(woff2)を data URI で内包**して同梱し、Webview は `<link>`(cspSource 経由)で読む。外部フォント参照は持たない。CSP に `font-src data:` を追加(§4)。
 - 図(mermaid): ` ```mermaid ` フェンスに対応。同様にプレースホルダ→ `mermaid.render`(`securityLevel:'strict'`・`startOnLoad:false`)で SVG を生成し差し込む。テーマは `body.vscode-dark`/`light` に追従。外部アイコン/CDN は使わない(`loadExternalDiagrams` 等は無効)。
 - **Host の通知・ダイアログへの差し込み値の無害化(必須)**: VS Code の非モーダル通知(`show*Message`)は `[label](https:…)` / `(command:…)` / `(file:…)` をリンクとして描画し、クリックで URL を開いたりコマンドを実行したりする。本文中のパス・添付名・表示名・チャンネル名などは他ユーザーが自由に書けるため、そのまま埋め込むと任意コマンドの実行や、ブラウザ起動による外部接続を誘導できる。動的な値を差し込む文言は必ず `hlSafe()`(`host/hostL10n.ts`)で組み立てる。`hlSafe` は差し込み値ごとに `neutralizeNotificationLinks`(`shared/notificationText.ts`)を適用し、`](` にゼロ幅スペースを挟んでリンクとして解釈させない。モーダルダイアログも同じ扱いにする(多層防御)。無害化するのは表示文字列だけで、クリップボードへのコピーやパスを開く処理には元の値を使う。
@@ -331,7 +331,7 @@ type WebviewMessage =
 
 ## 14. 将来拡張のための予約(実装しないが壊さない)
 
-- メンション: `body` 内の `@userId`(既知ユーザー)は **v0.0.4 でハイライト装飾を実装済み**(§10)。メンションに限った通知は引き続き対象外(将来拡張)。`sfBoard.notify.popup` の値に `mentions` を追加すれば対応できる構造にしておく(§7.1)。
+- メンション: `body` 内の `@userId`(既知ユーザー)は表示時に `@DisplayName` へ変換し、自分宛だけ強調する(§10)。メンションに限った通知は引き続き対象外(将来拡張)。`sfBoard.notify.popup` の値に `mentions` を追加すれば対応できる構造にしておく(§7.1)。
 - DM: `channel.json` に `members?: string[]` フィールドを予約(現在は未使用・全公開チャンネル)。
 - 全チャンネル横断検索: ローカルキャッシュ(DESIGN.md §6)上へのインデックス追加で対応可能な構造を維持する。
 - アーカイブ: `channel_archived` イベント追加で対応可能(type 未知イベントは無視される前方互換性で担保済み)。
