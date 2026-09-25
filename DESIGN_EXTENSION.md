@@ -42,8 +42,8 @@
 ┌─ Extension Host (Node.js) ─────────────────────────────┐
 │  ChatModel(シングルトン)                                │
 │   ├ store / sync / reducer / localCache (DESIGN.md §7) │
-│   ├ チャンネル状態のオンメモリ保持(全チャンネル)          │
-│   └ EventEmitter: onChannelUpdated(channelId)          │
+│   ├ チャンネル状態とユーザ一覧のオンメモリ保持          │
+│   └ EventEmitter: onChannelUpdated / onUsersUpdated     │
 │                                                        │
 │  ChannelTreeProvider ── TreeView(サイドバー)            │
 │  PanelManager ── ChatPanel × N(チャンネルごと)          │
@@ -62,6 +62,7 @@
 - **正となる状態は Extension Host 側の ChatModel に一元化**する。Webview はその投影(ビュー)であり、リデューサを Webview 側に持たない。
 - Webview からの操作(送信・リアクション等)はすべて Host へ委譲し、Host が共有フォルダへ書き込む。書き込み成功後、通常の同期経路(自イベントの再読込)で Webview へ反映する(楽観的UI更新は §6.4 参照)。
 - ファイルI/O・`fs.watch`・パス解決は Host 専任。Webview は Node API に触れない。
+- メンバー一覧は `users/` のプロフィールから Host が導出する(`DESIGN.md` §5.7)。Webview は受信した一覧のみを参照し、候補検索のたびに Host へ問い合わせない。
 
 ## 4. パネル管理(エディタタブ内 Webview)
 
@@ -96,6 +97,7 @@ type HostMessage =
       messages: RenderedThread[]; channelName: string;
       users: Record<string, UserProfile>;
       attachments: Record<string, AttachmentInfo> }        // Phase 3 追補
+  | { kind: "usersUpdated"; users: Record<string, UserProfile> }
   | { kind: "sendResult"; requestId: string; ok: boolean; error?: string }
   | { kind: "attachmentPicked"; requestId: string;
       files: { ulid: string; name: string; size: number }[] };
@@ -114,6 +116,7 @@ type WebviewMessage =
 ```
 
 - `channelUpdated` は差分イベントではなく**リデュース済み最新状態の全量**を送る。50人規模+全履歴読み込み方針なら十分軽く、Webview 側の状態管理バグを構造的に排除できる。描画のみ差分更新する(§6.3)。
+- `usersUpdated` は `ChatModel` のプロフィール一覧が変わったときに開いている各 Webview へ送る。メッセージ全履歴は再送せず、候補と既存 DOM の表示名・メンションの表示と hover を更新する。初期一覧は `init` に含める。
 - `RenderedThread` は「親メッセージ+返信配列+リアクション集計済み」のビュー用構造体。Markdown→HTML 変換は **Webview 側**で行う(Host は生テキストを渡す)。
 - `attachments` は当該チャンネルのメッセージが参照する添付の描画情報。Host が `attachments/{ch}/{YYYY-MM}/{ulid}/meta.json` を読み、`blob` を `asWebviewUri` で解決して渡す(Phase 3 追補)。
 - `openLink` は本文中リンクのクリックを Host へ委譲する。**リンクをクリックしてもブラウザは開かない**。Host は URL 全文をダイアログで提示し、「リンクのコピー」選択時のみ URL をクリップボードへコピーする(§10)。拡張自身は当該 URL へ通信しない(Phase 3 追補 / v0.0.3 で挙動変更)。
@@ -179,6 +182,17 @@ type WebviewMessage =
   - 楽観的 UI(pending)・リアクション・添付表示はペイン内でも同様に機能する。
   - 「チャンネルにも投稿(Also send to channel)」は本リリースでは対象外(将来拡張)。
   - 表示方式は `init` 時点の設定で決まる。設定変更時は他設定と同様に再初期化(パネル再作成)で反映する。
+
+### 6.7 メンション候補と表示
+
+- メイン入力欄、スレッドペインの入力欄、インライン返信入力欄に共通の候補 UI を設ける。カーソル直前の単語境界にある `@` とその後の文字列を検出する。メールアドレス中の `@` は対象外。入力操作による共有フォルダアクセスは発生させない。
+- `@` だけで全候補を開き、その後の入力で `userId` と `displayName` を部分一致検索する。候補には表示名と `userId` の両方を示し、表示名順で最大 10 件を表示する。同名の表示名があっても `userId` で区別する。
+- 上下矢印キーで候補を移動し、Enter・Tab・クリックで確定、Esc で閉じる。候補が開いていない場合は従来どおり Enter で改行、Ctrl+Enter で送信する。IME 変換中は候補確定キーを処理しない。カーソル移動、空白、削除、フォーカス喪失で候補を閉じる。
+- 候補選択時には入力欄の該当箇所を `@DisplayName` に置き換え、カーソルをその直後へ移す。入力欄ごとに選択した `userId` とトークン位置をローカルで保持する。後続の入力・削除で位置を補正し、トークンの中身が編集されたら紐付けを外す。送信時には有効なトークンを本文の後方から `@userId` に変換し、既存の `message_created.body` に保存する。イベントスキーマは変更しない。
+- 既存本文の `@userId` は表示時に現在の `@DisplayName` へ変換する(§10)。表示名の変更や重複があっても保存済みの宛先 ID は不変。コピー・手入力された単なる `@DisplayName` は候補から再選択しない限り自動で ID に変換しない。候補を利用できなくても通常のテキスト入力と送信は可能とする。
+- 現行の `@userId` 認識は `[A-Za-z0-9_-]+` に限る。設定値の `userId` は現状この文字集合へ強制されていないため、候補実装時は範囲外 ID を候補で選べないことを明示し、既存 ID を黙って正規化しない。全 ID への対応には本文記法と既存データの互換性を別途設計する。
+
+**実装状況**: チャット本文の `@DisplayName` 表示と自分宛だけの強調は実装済み。候補 UI、入力欄内の表示名と ID の紐付け、`users/` の低頻度照合、`usersUpdated` は未実装であり、本節の実装対象である。
 
 ## 7. TreeView(サイドバー)
 
@@ -320,6 +334,7 @@ type WebviewMessage =
 - **ユニットテスト(必須)**: `core/`(ulid 単調性補正、reducer の LWW/権限チェック/リネーム導出、JSONL差分読みの不完全行処理、store のアトミック書き込み)。vitest または mocha。ファイルI/Oは一時ディレクトリで実施。
 - **結合テスト(必須)**: 一時ディレクトリを共有フォルダに見立て、2つの store/sync インスタンスを同時に動かし、相互のイベントが収束することを検証(リアクションのトグル競合、同時投稿の順序)。
 - **手動テストチェックリスト**: SMB実環境での fs.watch 通知到達、フォールバック切替、VSCode再起動時のパネル復元、i18n表示、10MB超添付の拒否。
+- **メンション候補の確認**: 3 種の入力欄で候補の検索・選択・Enter改行・Ctrl+Enter送信・IME変換を確認する。表示名重複時も選択した userId が本文に保存されること、投稿前の新規ユーザーとプロフィール名の変更が低頻度照合後に反映されること、共有フォルダ一時切断時も既存候補と通常入力が保たれることを確認する。`@` の入力操作では共有フォルダ I/O が増えないことを診断ログ等で確かめる。
 - Webview UI の自動テストは本リリースでは対象外(手動確認)。
 
 ## 13. 実装フェーズ(DESIGN.md §9 を更新)
@@ -331,7 +346,7 @@ type WebviewMessage =
 
 ## 14. 将来拡張のための予約(実装しないが壊さない)
 
-- メンション: `body` 内の `@userId`(既知ユーザー)は表示時に `@DisplayName` へ変換し、自分宛だけ強調する(§10)。メンションに限った通知は引き続き対象外(将来拡張)。`sfBoard.notify.popup` の値に `mentions` を追加すれば対応できる構造にしておく(§7.1)。
+- メンション通知: 候補選択と本文表示は §6.7 / §10 の仕様とし、メンションに限った通知は引き続き対象外(将来拡張)。`sfBoard.notify.popup` の値に `mentions` を追加すれば対応できる構造にしておく(§7.1)。
 - DM: `channel.json` に `members?: string[]` フィールドを予約(現在は未使用・全公開チャンネル)。
 - 全チャンネル横断検索: ローカルキャッシュ(DESIGN.md §6)上へのインデックス追加で対応可能な構造を維持する。
 - アーカイブ: `channel_archived` イベント追加で対応可能(type 未知イベントは無視される前方互換性で担保済み)。
