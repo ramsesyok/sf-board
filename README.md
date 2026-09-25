@@ -56,6 +56,19 @@ VSIX は自己完結(全依存をバンドル済み)で、実行時のネット�
 }
 ```
 
+## 開発・CI
+
+GitHub Actions は push・PR・手動実行時に Ubuntu と Windows で依存関係の再現、型チェック、テスト、VSIX 作成を確認します。開発環境で同じ確認を行う場合:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run package
+```
+
+CI は開発時の検証であり、配布した拡張の実行時には GitHub へ接続しません。
+
 ## ライセンス
 
 社内利用限定。`LICENSE` を参照。
