@@ -13,7 +13,7 @@
 ## インストール(オフライン)
 
 ```bash
-code --install-extension sf-board-0.0.1.vsix
+code --install-extension sf-board-0.1.0.vsix
 ```
 
 VSIX は自己完結(全依存をバンドル済み)で、実行時のネットワークアクセスは
