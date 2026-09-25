@@ -508,14 +508,12 @@ body {
 .msg-body a { color: var(--vscode-textLink-foreground); }
 .msg-deleted { color: var(--vscode-descriptionForeground); font-style: italic; }
 
-/* @メンション装飾(§14: ハイライトのみ)。既定は自分以外、mention-self は自分宛。 */
-.mention {
-  color: var(--vscode-textLink-foreground); font-weight: 600;
-  background: var(--vscode-textBlockQuote-background); border-radius: 3px; padding: 0 2px;
-}
+/* @メンション装飾(§14)。自分宛だけ色を変え、それ以外は通常の本文色。 */
+.mention { color: inherit; }
 .mention-self {
-  color: var(--vscode-editorForeground, var(--vscode-foreground));
+  color: var(--vscode-textLink-foreground); font-weight: 600;
   background: var(--vscode-editor-selectionHighlightBackground, rgba(255, 200, 0, 0.28));
+  border-radius: 3px; padding: 0 2px;
 }
 
 /* シンタックスハイライト(highlight.js)。VS Code のテーマ(body.vscode-dark/light)に追従。

@@ -1,5 +1,6 @@
 # VSIX に含めないもの。dist/ はバンドル済みで自己完結のため node_modules は同梱しない。
 .vscode/**
+.github/**
 src/**
 node_modules/**
 **/*.map

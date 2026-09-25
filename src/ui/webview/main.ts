@@ -220,6 +220,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       currentThreads = msg.messages;
       claimPending();
       render();
+      refreshMentionLabels();
       break;
     case "sendResult":
       if (!msg.ok) {
@@ -837,8 +838,8 @@ function neutralizeLinks(container: HTMLElement): void {
   }
 }
 
-// 本文中の @userId を装飾する(§14: ハイライトのみ・通知なし)。
-// 既知ユーザー(users に存在)のみ対象。表示は @userId のまま、hover(title)で表示名。
+// 本文中の @userId を表示名へ変換する(§14: 自分宛だけ強調・通知なし)。
+// 既知ユーザー(users に存在)のみ対象。表示は @displayName、ID は dataset に保持。
 // コード/リンク内は対象外。テキストノードを走査して安全に置換する。
 const MENTION_RE = /@([A-Za-z0-9_-]+)/g;
 function decorateMentions(container: HTMLElement): void {
@@ -869,14 +870,26 @@ function replaceMentionsInTextNode(textNode: Text): void {
     if (m.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, m.index)));
     const span = document.createElement("span");
     span.className = id === selfUserId ? "mention mention-self" : "mention";
-    span.textContent = `@${id}`;
-    span.title = user.displayName || id;
+    span.dataset.userId = id;
+    span.textContent = `@${user.displayName || id}`;
+    span.title = id;
     frag.appendChild(span);
     lastIndex = m.index + m[0].length;
   }
   if (!matched) return;
   if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
   textNode.parentNode?.replaceChild(frag, textNode);
+}
+
+/** プロフィール更新後、キャッシュ済み本文を再描画せず表示名だけ追従させる。 */
+function refreshMentionLabels(): void {
+  for (const span of document.querySelectorAll<HTMLElement>(".mention[data-user-id]")) {
+    const id = span.dataset.userId;
+    if (!id) continue;
+    span.textContent = `@${users[id]?.displayName || id}`;
+    span.title = id;
+    span.classList.toggle("mention-self", id === selfUserId);
+  }
 }
 
 // 本文中のファイル/フォルダパスをクリック可能な .path-link にする(§10)。
